@@ -1,0 +1,36 @@
+domain:
+  path: stl/elitro_limpio_blender3_fixed.stl
+  unit: mm
+  mesh:
+    output_dir: mesh
+
+    # 0.2–0.5 mm elements
+    lc_min: 0.2
+    lc_max: 0.5
+
+  material:
+    # Approximate chitin properties (SI units)
+    k: 0.6          # W/(m·K)
+    rho: 1420.0     # kg/m³
+    c: 1300.0       # J/(kg·K)
+
+simulation:
+  geometry:
+    representation: surface
+
+  time:
+    dt: 0.005
+    T: 7.0
+
+  initial_condition:
+    type: hotspot
+
+    ambient: 298.15     # K
+    delta: 60.0        # K
+
+    # X MAX point from STL analysis
+    center:
+      [-0.000915, 0.000847, -0.006542]
+
+    # Previous hotspot radius (700 μm)
+    radius: 0.004 #no puede ser menor a 0.004

@@ -1,0 +1,87 @@
+# ----------------------------------------------------
+# Simulacion con datos de absorbancia
+# ----------------------------------------------------
+domain:
+  path: stl/elitro_limpio_mm.stl #centro del elitro coor: () parte baja ()
+  unit: mm
+
+  mesh:
+    output_dir: mesh
+
+    # Element size (mm)
+    lc_min: 0.2
+    lc_max: 0.5
+
+  material:
+    # Copper (20 °C)
+    #k: 40.0          # W/(m·K)
+    #rho: 8960.0       # kg/m³
+    #c: 385.0          # J/(kg·K)}
+    # elitro
+    k: 40.0          # W/(m·K)
+    rho: 506.1548429      # kg/m³
+    c: 193.0          # J/(kg·K)
+
+simulation:
+
+  geometry:
+    representation: volume
+
+  time:
+    dt: 0.01          # s
+    T: 10.0           # s
+
+  # ----------------------------------------------------
+  # Initial condition
+  # ----------------------------------------------------
+
+  initial_condition:
+    type: uniform
+    ambient: 298.15   # K
+
+  # ----------------------------------------------------
+  # Physics
+  # ----------------------------------------------------
+
+  physics:
+
+    # ----------------------------------------------
+    # Volumetric heat source
+    # ----------------------------------------------
+    source:
+      name: Sun
+      enabled: true
+
+      type: lamp
+
+      # Total source power (future implementation)
+      power: 250.10        # W/m2 Sun: 832.715 W/m2 Lampara a 40,38 mm 250,1031533 W/m2
+
+      value: 2.5e12
+
+      # Gaussian center (meters)
+      center:
+        [0.0, 0.0, 0.005]
+
+      # Gaussian radius
+      radius: 0.002    # m
+
+      # Source active between these times
+      t_start: 5.0      # s
+      t_end: 10.0       # s
+
+    # ----------------------------------------------
+    # Convection
+    # ----------------------------------------------
+    convection:
+      enabled: true
+      h: 10.0           # W/(m²·K)
+      ambient: 298.15   # K
+
+    # ----------------------------------------------
+    # Radiation
+    # ----------------------------------------------
+    radiation:
+      enabled: true
+      emissivity: 0.240 #promedio: 0.240 kalinini: alpha 0.248 alpha_vis = 0.040, alpha_ir = 0.208, #resplendens: alpha 0.229, alpha_vis 0.192 alpha_ir = 0.037
+      ambient: 298.15   # K

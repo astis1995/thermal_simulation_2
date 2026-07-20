@@ -1,0 +1,21 @@
+Ubicacion
+
+C:\Documents\thermal_simulation_2
+
+en wsl
+
+/mnt/c/Documents/thermal_simulation_2
+
+Como correr el archivo
+
+
+python orchestrator.py simulation1 parameters9.yaml --rebuild
+
+
+Software de visualizacion Paraview
+
+
+Recordar borrar los meshes despues de hacer cambios a la simulacion
+
+Ellipsoid
+python ellipsoid_stereo.py --output ellipsoid_20x10x5_t1 --major 0.020 --minor 0.010 --height 0.005 --thickness 0.001 --mesh-size 0.0005

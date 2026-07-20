@@ -1,0 +1,19 @@
+*.xdmf
+*.h5
+# Python
+__pycache__/
+*.py[cod]
+
+# FEniCS output
+*.xdmf
+*.h5
+
+# Generated simulation outputs
+outputs/
+*.h5
+*.xdmf
+*.msh
+
+# Python
+__pycache__/
+*.pyc

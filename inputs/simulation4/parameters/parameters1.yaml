@@ -1,0 +1,27 @@
+surface:
+  path: stl/ellipsoid.stl
+
+  mesh:
+    lc_min: 0.001
+    lc_max: 0.001
+
+  material:
+    # Approximate chitin properties
+    k: 0.5        # W/(m·K)
+    rho: 1420.0   # kg/m³
+    c: 1300.0     # J/(kg·K)
+
+simulation:
+  time:
+    dt: 1.0
+    T: 100.0
+
+  initial_condition:
+    type: hotspot
+    ambient: 298.15   # K (room temp)
+    delta: 50.0       # temperature increase (K)
+    center: [0.0, 0.0, 0.02]
+    radius: 0.02
+
+  output:
+    save_every: 1
