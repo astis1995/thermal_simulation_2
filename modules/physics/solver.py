@@ -11,7 +11,7 @@ from dolfinx.fem.petsc import (
     assemble_matrix,
     assemble_vector
 )
-
+from .roi import PointTracker
 from petsc4py import PETSc
 
 
@@ -26,7 +26,8 @@ class HeatSolver:
         u_n,
         sim_name,
         output_dir,
-        t0=0.0
+        roi_config=None,
+        t0=0.0,
     ):
 
         self.V = V
@@ -64,7 +65,19 @@ class HeatSolver:
         timestamp = datetime.now().strftime(
             "%Y%m%d-%H%M%S"
         )
+        # ==================================================
+        # PointTracker
+        # ==================================================
+        print("ROI CONFIG:")
+        print(roi_config)
 
+        self.point_tracker = PointTracker(
+            mesh=V.mesh,
+            function_space=V,
+            config=roi_config,
+            output_dir=results_dir,
+            filename=f"{sim_name}-{timestamp}-roi.csv",
+        )
         # ==================================================
         # XDMF OUTPUT
         # ==================================================
@@ -254,7 +267,10 @@ class HeatSolver:
         self.u_n.x.array[:] = u_arr
 
         self.t += self.heat_eq.dt
-
+        self.point_tracker.sample(
+            self.t,
+            self.u,
+        )
         return self.u
 
     # ======================================================
@@ -307,7 +323,11 @@ class HeatSolver:
         print(
             f"   save every = {save_every}"
         )
-
+        #sample initial condition
+        self.point_tracker.sample(
+            self.t,
+            self.u,
+        )
         while self.t < T:
 
             self.step()
@@ -332,6 +352,7 @@ class HeatSolver:
 
             step += 1
 
+        self.point_tracker.write_csv()
         self.xdmf.close()
 
         print("\n✅ Simulation finished")

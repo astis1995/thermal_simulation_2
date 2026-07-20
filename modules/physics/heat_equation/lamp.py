@@ -26,6 +26,8 @@ def initialize_lamp(heat_eq, source):
     heat_eq.ds_lamp = None
     heat_eq.illuminated_area = None
 
+    source_position, light_direction = parse_lamp_geometry(source)
+
     topo_dim = heat_eq.mesh.topology.dim
 
     # --------------------------------------------------
@@ -38,7 +40,9 @@ def initialize_lamp(heat_eq, source):
             heat_eq.boundary_facets,
             heat_eq.illuminated_area,
         ) = find_volume_lamp_facets(
-            heat_eq.mesh
+            heat_eq.mesh,
+            source_position,
+            light_direction,
         )
 
         entity_dim = topo_dim - 1
@@ -49,7 +53,9 @@ def initialize_lamp(heat_eq, source):
             heat_eq.boundary_facets,
             heat_eq.illuminated_area,
         ) = find_surface_lamp_facets(
-            heat_eq.mesh
+            heat_eq.mesh,
+            source_position,
+            light_direction,
         )
 
         entity_dim = topo_dim
@@ -90,9 +96,7 @@ def initialize_lamp(heat_eq, source):
         entities,
         facet_values,
     )
-    print(heat_eq.facet_tags.indices.shape)
-    print(heat_eq.facet_tags.values.shape)
-    print(np.unique(heat_eq.facet_tags.values))
+
     # --------------------------------------------------
     # Measure
     # --------------------------------------------------
@@ -230,8 +234,21 @@ def update_lamp_source(heat_eq, source, t):
 
 def find_volume_lamp_facets(
     domain,
-    light_direction=np.array([0.0, 0.0, 1.0]),
+    source_position,
+    light_direction,
 ):
+    """
+    Find illuminated boundary facets of a volume mesh.
+
+    Parameters
+    ----------
+    source_position : np.ndarray
+        Lamp position. If any coordinate is ±inf, the source is treated
+        as infinitely far away and rays are assumed parallel.
+
+    light_direction : np.ndarray
+        Main propagation direction of the light.
+    """
 
     fdim = domain.topology.dim - 1
 
@@ -246,6 +263,8 @@ def find_volume_lamp_facets(
     connectivity = domain.topology.connectivity(fdim, 0)
 
     mesh_center = x.mean(axis=0)
+
+    infinite_source = np.any(np.isinf(source_position))
 
     illuminated = []
 
@@ -271,13 +290,44 @@ def find_volume_lamp_facets(
         if np.dot(normal, center - mesh_center) < 0:
             normal *= -1.0
 
-        if np.dot(normal, light_direction) > 0:
+        # --------------------------------------------
+        # Compute incoming light direction
+        # --------------------------------------------
+
+        if infinite_source:
+
+            ray = light_direction
+
+        else:
+
+            ray = center - source_position
+
+            norm = np.linalg.norm(ray)
+
+            if norm == 0:
+                continue
+
+            ray /= norm
+
+            # Ignore facets behind the lamp
+            if np.dot(ray, light_direction) < 0:
+                continue
+
+        # --------------------------------------------
+        # Illuminated?
+        # --------------------------------------------
+
+        if np.dot(normal, ray) > 0:
 
             illuminated.append(facet)
+
             area += triangle_area(points)
 
     return (
-        np.asarray(illuminated, dtype=np.int32),
+        np.asarray(
+            illuminated,
+            dtype=np.int32,
+        ),
         area,
     )
 
@@ -335,3 +385,36 @@ def find_surface_lamp_facets(
         np.asarray(illuminated, dtype=np.int32),
         area,
     )
+
+
+import numpy as np
+
+def parse_lamp_geometry(source):
+    """
+    Returns
+    -------
+    source_position : np.ndarray
+    light_direction : np.ndarray
+    """
+
+    # Default: sunlight coming from +Z
+    source_position = np.array(
+        source.get("source", [0.0, np.inf, 0.0]),
+        dtype=float,
+    )
+
+    light_direction = np.array(
+        source.get("direction", [0.0, 0.0, 1.0]),
+        dtype=float,
+    )
+
+    norm = np.linalg.norm(light_direction)
+
+    if norm == 0:
+        raise ValueError(
+            "Lamp direction cannot be the zero vector."
+        )
+
+    light_direction /= norm
+
+    return source_position, light_direction

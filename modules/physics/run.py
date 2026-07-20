@@ -177,7 +177,8 @@ def run_simulation(
         heat_equation=heat_eq,
         u_n=u_n,
         sim_name=sim_name,
-        output_dir=output_dir
+        output_dir=output_dir,
+        roi_config=config.get("roi", {}),
     )
 
     # --------------------------------------------------

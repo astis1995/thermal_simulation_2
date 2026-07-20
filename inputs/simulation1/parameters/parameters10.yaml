@@ -1,5 +1,7 @@
 # ----------------------------------------------------
 # Simulacion con datos de absorbancia
+# Iluminacion superior ubicacion en +z inf, direccion -z
+# Iluminacion izquierda ubicacion en -y inf, direccion +y
 # ----------------------------------------------------
 domain:
   path: stl/elitro_limpio_mm.stl #centro del elitro coor: () parte baja ()
@@ -54,6 +56,9 @@ simulation:
 
       type: lamp
 
+      source: [0.0, inf, 0.0]
+
+      direction: [0.0, -1.0, 0.0]
       # Total source power (future implementation)
       power: 250.10        # W/m2 Sun: 832.715 W/m2 Lampara a 40,38 mm 250,1031533 W/m2
 
@@ -85,3 +90,29 @@ simulation:
       enabled: true
       emissivity: 0.240 #promedio: 0.240 kalinini: alpha 0.248 alpha_vis = 0.040, alpha_ir = 0.208, #resplendens: alpha 0.229, alpha_vis 0.192 alpha_ir = 0.037
       ambient: 298.15   # K
+
+roi:
+  search:
+    mode: nearest
+    tolerance: 5e-4
+  points:
+
+    - name: Left
+      location: [-0.002470473, -0.004185681, -0.006781751]
+      variables:
+        - temperature
+
+    - name: Right
+      location: [-0.001115140, 0.005589383, -0.005121521]
+      variables:
+        - temperature
+
+    - name: Center
+      location: [-0.001820740, 0.000601505, -0.006505752]
+      variables:
+        - temperature
+
+    - name: Cabeza
+      location: [-0.003014972, 0.001827026, 0.002142696]
+      variables:
+        - temperature
