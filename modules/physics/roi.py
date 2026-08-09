@@ -17,11 +17,29 @@ from dolfinx import geometry
 
 @dataclass
 class ROIPoint:
+
     name: str
-    location: np.ndarray
+
+    # User-requested coordinates.
+    # Can contain 2 or 3 values.
+    requested: np.ndarray
+
     variables: list[str]
 
+    # Actual mesh coordinate selected.
+    actual: np.ndarray | None = None
+
+    # Cell used to evaluate the finite-element field.
     cell: int | None = None
+
+    # Geometry point / vertex index.
+    vertex: int | None = None
+
+    # Selection mode.
+    mode: str | None = None
+
+    # Distance from requested location.
+    distance: float | None = None
 
 
 # ==========================================================
@@ -41,7 +59,7 @@ class PointTracker:
 
         print("PointTracker constructor")
         print(config)
-        
+
         self.mesh = mesh
         self.V = function_space
 
@@ -55,7 +73,11 @@ class PointTracker:
         # Search configuration
         # --------------------------------------------------
 
-        search_cfg = config.get("search", {}) if config else {}
+        search_cfg = (
+            config.get("search", {})
+            if config
+            else {}
+        )
 
         self.mode = search_cfg.get(
             "mode",
@@ -70,19 +92,45 @@ class PointTracker:
         )
 
         # --------------------------------------------------
+        # Mesh topology
+        # --------------------------------------------------
+
+        self.tdim = self.mesh.topology.dim
+
+        # Vertex -> cell connectivity.
+        self.mesh.topology.create_connectivity(
+            0,
+            self.tdim,
+        )
+
+        self.vertex_to_cells = (
+            self.mesh.topology.connectivity(
+                0,
+                self.tdim,
+            )
+        )
+
+        # --------------------------------------------------
+        # Geometry coordinates
+        # --------------------------------------------------
+
+        self.coordinates = np.asarray(
+            self.mesh.geometry.x,
+            dtype=np.float64,
+        )
+
+        # --------------------------------------------------
         # Build search trees ONCE
         # --------------------------------------------------
 
         self.bb_tree = geometry.bb_tree(
             self.mesh,
-            self.mesh.topology.dim,
+            self.tdim,
         )
 
         num_cells = (
             self.mesh.topology
-            .index_map(
-                self.mesh.topology.dim
-            )
+            .index_map(self.tdim)
             .size_local
         )
 
@@ -91,10 +139,12 @@ class PointTracker:
             dtype=np.int32,
         )
 
-        self.midpoint_tree = geometry.create_midpoint_tree(
-            self.mesh,
-            self.mesh.topology.dim,
-            cells,
+        self.midpoint_tree = (
+            geometry.create_midpoint_tree(
+                self.mesh,
+                self.tdim,
+                cells,
+            )
         )
 
         # --------------------------------------------------
@@ -110,23 +160,39 @@ class PointTracker:
 
         for p in config.get("points", []):
 
+            location = np.asarray(
+                p["location"],
+                dtype=np.float64,
+            )
+
+            if location.size not in (2, 3):
+
+                raise ValueError(
+                    f"ROI '{p['name']}' must contain "
+                    f"2 or 3 coordinates. "
+                    f"Got {location.size}."
+                )
+
             point = ROIPoint(
                 name=p["name"],
-                location=np.asarray(
-                    p["location"],
-                    dtype=np.float64,
-                ),
+                requested=location,
                 variables=p.get(
                     "variables",
                     ["temperature"],
                 ),
             )
 
-            point.cell = self._find_cell(
-                point.location
-            )
+            # --------------------------------------------------
+            # Resolve requested location
+            # --------------------------------------------------
 
-            if point.cell is None:
+            self._resolve_point(point)
+
+            # --------------------------------------------------
+            # Diagnostics
+            # --------------------------------------------------
+
+            if point.actual is None:
 
                 print(
                     f"⚠ ROI '{point.name}' "
@@ -136,93 +202,324 @@ class PointTracker:
             else:
 
                 print(
-                    f"✔ ROI '{point.name}' "
-                    f"using cell {point.cell}"
+                    f"✔ ROI '{point.name}'"
+                )
+
+                print(
+                    f"   requested = "
+                    f"{point.requested}"
+                )
+
+                print(
+                    f"   actual    = "
+                    f"{point.actual}"
+                )
+
+                print(
+                    f"   distance  = "
+                    f"{point.distance:.6e} m"
+                )
+
+                print(
+                    f"   mode      = "
+                    f"{point.mode}"
+                )
+
+                print(
+                    f"   cell      = "
+                    f"{point.cell}"
+                )
+
+                print(
+                    f"   vertex    = "
+                    f"{point.vertex}"
                 )
 
             self.points.append(point)
 
     # ======================================================
-    # FIND CELL
+    # RESOLVE POINT
     # ======================================================
 
-    def _find_cell(
+    def _resolve_point(
         self,
-        x: np.ndarray,
+        point: ROIPoint,
     ):
 
-        x = np.asarray(
-            x,
-            dtype=np.float64,
-        ).reshape((1, 3))
+        if point.requested.size == 3:
+
+            self._resolve_3d(point)
+
+        elif point.requested.size == 2:
+
+            self._resolve_2d(point)
+
+        else:
+
+            raise ValueError(
+                "ROI coordinates must contain "
+                "2 or 3 values."
+            )
+
+    # ======================================================
+    # 3D POINT
+    # ======================================================
+
+    def _resolve_3d(
+        self,
+        point: ROIPoint,
+    ):
+
+        target = point.requested
+
+        coords = self.coordinates
 
         # --------------------------------------------------
-        # First try: point inside the mesh
+        # Euclidean 3D distance
         # --------------------------------------------------
 
-        candidates = geometry.compute_collisions_points(
-            self.bb_tree,
-            x,
+        delta = coords - target
+
+        distances = np.linalg.norm(
+            delta,
+            axis=1,
         )
 
-        colliding = geometry.compute_colliding_cells(
-            self.mesh,
-            candidates,
-            x,
+        vertex = int(
+            np.argmin(distances)
         )
 
-        if len(colliding.links(0)) > 0:
-            return colliding.links(0)[0]
-
-        # --------------------------------------------------
-        # Exact mode
-        # --------------------------------------------------
-
-        if self.mode == "exact":
-            return None
-
-        # --------------------------------------------------
-        # Nearest-cell fallback
-        # --------------------------------------------------
-
-        cell = geometry.compute_closest_entity(
-            self.bb_tree,
-            self.midpoint_tree,
-            self.mesh,
-            x,
+        distance = float(
+            distances[vertex]
         )
 
-        if cell < 0:
-            return None
-
         # --------------------------------------------------
-        # Compute distance to nearest cell
+        # Tolerance
         # --------------------------------------------------
 
-        distance2 = geometry.squared_distance(
-            self.mesh,
-            self.mesh.topology.dim,
-            np.array([cell], dtype=np.int32),
-            x,
-        )[0]
+        if (
+            self.mode == "exact"
+            and distance > 0.0
+        ):
 
-        distance = np.sqrt(distance2)
+            point.actual = None
+            point.vertex = None
+            point.cell = None
+            point.distance = distance
+            point.mode = "3D-exact-failed"
+
+            return
 
         if distance > self.tolerance:
 
             print(
-                f"⚠ Closest cell is {distance:.6e} m "
-                f"away (tolerance={self.tolerance:.6e} m)"
+                f"⚠ ROI '{point.name}': "
+                f"nearest 3D mesh point is "
+                f"{distance:.6e} m away "
+                f"(tolerance="
+                f"{self.tolerance:.6e} m)"
             )
 
-            return None
+            point.actual = None
+            point.vertex = None
+            point.cell = None
+            point.distance = distance
+            point.mode = "3D-nearest-outside-tolerance"
 
-        print(
-            f"ℹ Using nearest cell {cell} "
-            f"(distance={distance:.6e} m)"
+            return
+
+        # --------------------------------------------------
+        # Store selected mesh point
+        # --------------------------------------------------
+
+        point.vertex = vertex
+
+        point.actual = coords[
+            vertex
+        ].copy()
+
+        point.distance = distance
+
+        point.mode = "3D-nearest"
+
+        # --------------------------------------------------
+        # Find a cell containing this vertex
+        # --------------------------------------------------
+
+        links = self.vertex_to_cells.links(
+            vertex
         )
 
-        return int(cell)
+        if len(links) == 0:
+
+            point.cell = None
+
+            print(
+                f"⚠ ROI '{point.name}': "
+                f"vertex {vertex} has no "
+                f"connected cell."
+            )
+
+            return
+
+        point.cell = int(
+            links[0]
+        )
+
+    # ======================================================
+    # 2D POINT
+    # ======================================================
+
+    def _resolve_2d(
+        self,
+        point: ROIPoint,
+    ):
+
+        target_xy = point.requested
+
+        coords = self.coordinates
+
+        # --------------------------------------------------
+        # Distance only in XY
+        # --------------------------------------------------
+
+        delta_xy = (
+            coords[:, :2]
+            - target_xy
+        )
+
+        distances_xy = np.linalg.norm(
+            delta_xy,
+            axis=1,
+        )
+
+        # --------------------------------------------------
+        # Find all mesh points close to requested XY
+        # --------------------------------------------------
+
+        candidates = np.where(
+            distances_xy
+            <= self.tolerance
+        )[0]
+
+        # --------------------------------------------------
+        # No point inside tolerance
+        # --------------------------------------------------
+
+        if len(candidates) == 0:
+
+            nearest = int(
+                np.argmin(
+                    distances_xy
+                )
+            )
+
+            nearest_distance = float(
+                distances_xy[nearest]
+            )
+
+            print(
+                f"⚠ ROI '{point.name}': "
+                f"no mesh point found within "
+                f"XY tolerance "
+                f"{self.tolerance:.6e} m."
+            )
+
+            print(
+                f"   Nearest XY distance = "
+                f"{nearest_distance:.6e} m"
+            )
+
+            point.actual = None
+            point.vertex = None
+            point.cell = None
+            point.distance = nearest_distance
+            point.mode = "2D-no-candidate"
+
+            return
+
+        # --------------------------------------------------
+        # Highest Z wins
+        # --------------------------------------------------
+
+        candidate_z = coords[
+            candidates,
+            2,
+        ]
+
+        highest_z = np.max(
+            candidate_z
+        )
+
+        highest = candidates[
+            np.isclose(
+                candidate_z,
+                highest_z,
+            )
+        ]
+
+        # --------------------------------------------------
+        # If several have the same Z,
+        # choose the closest in XY.
+        # --------------------------------------------------
+
+        if len(highest) > 1:
+
+            best = highest[
+                np.argmin(
+                    distances_xy[
+                        highest
+                    ]
+                )
+            ]
+
+        else:
+
+            best = highest[0]
+
+        vertex = int(best)
+
+        distance = float(
+            distances_xy[vertex]
+        )
+
+        # --------------------------------------------------
+        # Store selected mesh point
+        # --------------------------------------------------
+
+        point.vertex = vertex
+
+        point.actual = coords[
+            vertex
+        ].copy()
+
+        point.distance = distance
+
+        point.mode = "2D-highest-Z"
+
+        # --------------------------------------------------
+        # Find a cell containing this vertex
+        # --------------------------------------------------
+
+        links = self.vertex_to_cells.links(
+            vertex
+        )
+
+        if len(links) == 0:
+
+            point.cell = None
+
+            print(
+                f"⚠ ROI '{point.name}': "
+                f"vertex {vertex} has no "
+                f"connected cell."
+            )
+
+            return
+
+        point.cell = int(
+            links[0]
+        )
 
     # ======================================================
     # SAMPLE
@@ -232,18 +529,38 @@ class PointTracker:
         self,
         time,
         field,
+        energy=None,
     ):
 
         row = {
             "time": float(time)
         }
 
+        # --------------------------------------------------
+        # Energy information
+        # --------------------------------------------------
+
+        if energy is not None:
+
+            for key, value in energy.items():
+
+                row[key] = float(value)
+
+        # --------------------------------------------------
+        # ROI temperatures
+        # --------------------------------------------------
+
         for point in self.points:
 
-            if point.cell is None:
+            if (
+                point.cell is None
+                or point.actual is None
+            ):
                 continue
 
-            x = point.location.reshape((1, 3))
+            x = point.actual.reshape(
+                (1, 3)
+            )
 
             value = field.eval(
                 x,
@@ -254,7 +571,14 @@ class PointTracker:
             )[0]
 
             if "temperature" in point.variables:
-                row[f"{point.name}.temperature"] = float(value)
+
+                row[
+                    f"{point.name}.temperature"
+                ] = float(value)
+
+        # --------------------------------------------------
+        # Store row
+        # --------------------------------------------------
 
         self.history.append(row)
 
@@ -274,10 +598,128 @@ class PointTracker:
 
         columns = []
 
+        # --------------------------------------------------
+        # Basic simulation columns
+        # --------------------------------------------------
+
+        columns.append("time")
+
+        # --------------------------------------------------
+        # ROI metadata
+        # --------------------------------------------------
+
+        for point in self.points:
+
+            columns.extend(
+                [
+                    f"{point.name}.requested_x",
+                    f"{point.name}.requested_y",
+                    f"{point.name}.requested_z",
+                    f"{point.name}.actual_x",
+                    f"{point.name}.actual_y",
+                    f"{point.name}.actual_z",
+                    f"{point.name}.distance",
+                    f"{point.name}.mode",
+                ]
+            )
+
+        # --------------------------------------------------
+        # Dynamic columns
+        # --------------------------------------------------
+
         for row in self.history:
-            for k in row.keys():
-                if k not in columns:
-                    columns.append(k)
+
+            for key in row.keys():
+
+                if key not in columns:
+
+                    columns.append(key)
+
+        # --------------------------------------------------
+        # Add ROI metadata to every row
+        # --------------------------------------------------
+
+        output_rows = []
+
+        for row in self.history:
+
+            output = dict(row)
+
+            for point in self.points:
+
+                requested = point.requested
+
+                output[
+                    f"{point.name}.requested_x"
+                ] = float(
+                    requested[0]
+                )
+
+                output[
+                    f"{point.name}.requested_y"
+                ] = float(
+                    requested[1]
+                )
+
+                output[
+                    f"{point.name}.requested_z"
+                ] = (
+                    float(requested[2])
+                    if requested.size == 3
+                    else np.nan
+                )
+
+                if point.actual is not None:
+
+                    output[
+                        f"{point.name}.actual_x"
+                    ] = float(
+                        point.actual[0]
+                    )
+
+                    output[
+                        f"{point.name}.actual_y"
+                    ] = float(
+                        point.actual[1]
+                    )
+
+                    output[
+                        f"{point.name}.actual_z"
+                    ] = float(
+                        point.actual[2]
+                    )
+
+                else:
+
+                    output[
+                        f"{point.name}.actual_x"
+                    ] = np.nan
+
+                    output[
+                        f"{point.name}.actual_y"
+                    ] = np.nan
+
+                    output[
+                        f"{point.name}.actual_z"
+                    ] = np.nan
+
+                output[
+                    f"{point.name}.distance"
+                ] = (
+                    float(point.distance)
+                    if point.distance is not None
+                    else np.nan
+                )
+
+                output[
+                    f"{point.name}.mode"
+                ] = point.mode
+
+            output_rows.append(output)
+
+        # --------------------------------------------------
+        # Write CSV
+        # --------------------------------------------------
 
         with open(
             path,
@@ -292,7 +734,10 @@ class PointTracker:
 
             writer.writeheader()
 
-            for row in self.history:
+            for row in output_rows:
+
                 writer.writerow(row)
 
-        print(f"📈 ROI data saved to {path}")
+        print(
+            f"📈 ROI data saved to {path}"
+        )

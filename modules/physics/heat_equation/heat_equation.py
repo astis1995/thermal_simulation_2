@@ -8,23 +8,38 @@ from ufl import (
     grad,
 )
 import numpy as np
-from .gaussian import update_gaussian_source
+from .gaussian import (
+    initialize_gaussian,
+    update_gaussian_source,
+)
+
 from .lamp import (
     initialize_lamp,
     update_lamp_source,
 )
 
+from .laser import (
+    initialize_laser,
+    update_laser_source,
+)
+
+from .energy_balance import EnergyBalance
 class HeatEquation:
     """
-    Transient heat equation
+    Transient heat equation with optional surface heat-flux sources.
 
-        rho*c*dT/dt = div(k grad(T)) + Q
+        rho*c*dT/dt = div(k*grad(T))
 
-    with optional
+    with optional boundary heat flux:
 
-        • volumetric heat source
-        • convection
-        • radiation (linearized)
+        - Gaussian surface heat flux [W/m²]
+        - Lamp surface heat flux [W/m²]
+        - Laser surface heat flux [W/m²]
+        - convection
+        - radiation (linearized)
+
+    The incident heat flux is applied as a Neumann boundary
+    condition on the illuminated surface.
     """
 
     SIGMA = 5.670374419e-8
@@ -51,44 +66,98 @@ class HeatEquation:
             .get("physics", {})
         )
 
-        # Spatial volumetric heat source (W/m³)
-        self.Q = fem.Function(V)
-
-        source_cfg = self.physics.get("source", {})
-
-        if source_cfg.get("type") == "lamp":
-            initialize_lamp(self, source_cfg)
-
-        self.Q.name = source_cfg.get(
-            "name",
-            "HeatSource"
-        )
-
-        self.Q.x.array[:] = 0.0
-
+        # Sources
         self.has_source = False
         self.has_convection = False
         self.has_radiation = False
+
+        self.q_gaussian = None
+        self.q_lamp = None
+        self.q_laser = None
+
+        self.ds_gaussian = None
+        self.ds_lamp = None
+        self.ds_laser = None
+
+        source_cfg = self.physics.get(
+            "source",
+            {}
+        )
+
+        source_type = source_cfg.get(
+            "type",
+            "gaussian"
+        ).lower()
+
+        if source_type == "gaussian":
+
+            initialize_gaussian(
+                self,
+                source_cfg
+            )
+
+        elif source_type == "lamp":
+
+            initialize_lamp(
+                self,
+                source_cfg
+            )
+
+        elif source_type == "laser":
+
+            initialize_laser(
+                self,
+                source_cfg
+            )
+
+        elif source_type:
+
+            raise ValueError(
+                f"Unknown source type '{source_type}'"
+            )
+
+
+
 
         V_ufl = V.ufl_function_space()
 
         self.u = TrialFunction(V_ufl)
         self.v = TestFunction(V_ufl)
-
+        self.energy_balance = EnergyBalance(self)
     # --------------------------------------------------
     # SOURCE UPDATE
     # --------------------------------------------------
 
     def update_source(self, t):
 
-        source = self.physics.get("source")
+        source = self.physics.get(
+            "source"
+        )
 
-        if source is None or not source.get("enabled", False):
+        if (
+            source is None
+            or not source.get("enabled", False)
+        ):
 
-            self.Q.x.array[:] = 0.0
+            if self.q_gaussian is not None:
+                self.q_gaussian.x.array[:] = 0.0
+
+            if self.q_lamp is not None:
+                self.q_lamp.x.array[:] = 0.0
+
+            if self.q_laser is not None:
+                self.q_laser.x.array[:] = 0.0
+
             return
 
-        source_type = source.get("type", "gaussian")
+        source_type = source.get(
+            "type",
+            "gaussian"
+        ).lower()
+
+        # --------------------------------------------------
+        # Gaussian surface source
+        # --------------------------------------------------
 
         if source_type == "gaussian":
 
@@ -98,9 +167,25 @@ class HeatEquation:
                 t,
             )
 
+        # --------------------------------------------------
+        # Lamp surface source
+        # --------------------------------------------------
+
         elif source_type == "lamp":
 
             update_lamp_source(
+                self,
+                source,
+                t,
+            )
+
+        # --------------------------------------------------
+        # Laser surface source
+        # --------------------------------------------------
+
+        elif source_type == "laser":
+
+            update_laser_source(
                 self,
                 source,
                 t,
@@ -111,8 +196,6 @@ class HeatEquation:
             raise ValueError(
                 f"Unknown source type '{source_type}'"
             )
-
-    # --------------------------------------------------
 
     def build_forms(self, u_n):
 
@@ -139,28 +222,72 @@ class HeatEquation:
         )
 
         # --------------------------------------------------
-        # Heat source
+        # Incident surface source
         # --------------------------------------------------
 
-        source = self.physics.get("source")
+        source = self.physics.get(
+            "source"
+        )
 
-        if source and source.get("enabled", False):
+        if source and source.get(
+            "enabled",
+            False
+        ):
 
             self.has_source = True
 
-            source_type = source.get("type", "gaussian")
+            source_type = source.get(
+                "type",
+                "gaussian"
+            ).lower()
+
+            # --------------------------------------------------
+            # Gaussian surface source
+            # --------------------------------------------------
 
             if source_type == "gaussian":
 
-                source_term = self.Q / (rho * c)
+                flux = self.q_gaussian
 
-                L += dt * source_term * v * dx
+                L += (
+                    dt
+                    * flux
+                    / (rho * c)
+                    * v
+                    * self.ds_gaussian(1)
+                )
+
+            # --------------------------------------------------
+            # Lamp surface source
+            # --------------------------------------------------
 
             elif source_type == "lamp":
 
-                flux = self.q_flux / (rho * c)
+                flux = self.q_lamp
 
-                L += dt * flux * v * self.ds_lamp(1)
+                L += (
+                    dt
+                    * flux
+                    / (rho * c)
+                    * v
+                    * self.ds_lamp(1)
+                )
+
+            # --------------------------------------------------
+            # Laser surface source
+            # --------------------------------------------------
+
+            elif source_type == "laser":
+
+                flux = self.q_laser
+
+                L += (
+                    dt
+                    * flux
+                    / (rho * c)
+                    * v
+                    * self.ds_laser(1)
+                )
 
             else:
 
@@ -257,13 +384,22 @@ class HeatEquation:
             source_type = source.get("type", "gaussian")
 
             if source_type == "gaussian":
-                print("   ✓ Gaussian volumetric source")
+
+                print(
+                    "   ✓ Gaussian incident surface flux"
+                )
 
             elif source_type == "lamp":
-                print("   ✓ Lamp boundary flux")
 
-            else:
-                print(f"   ✓ Source ({source_type})")
+                print(
+                    "   ✓ Lamp incident surface flux"
+                )
+
+            elif source_type == "laser":
+
+                print(
+                    "   ✓ Laser incident Gaussian surface flux"
+                )
 
         if self.has_convection:
             print("   ✓ Convection")

@@ -105,13 +105,14 @@ class HeatSolver:
         self.a_form = fem.form(self.a)
         self.L_form = fem.form(self.L)
 
+
+
         print("   ✔ Forms compiled")
 
         # ==================================================
         # INITIAL OUTPUT
         # ==================================================
 
-        self.heat_eq.update_source(self.t)
 
         self.xdmf.write_mesh(
             V.mesh
@@ -122,9 +123,11 @@ class HeatSolver:
             self.t
         )
 
-        if self.heat_eq.has_source:
+        source_field = self.get_source_field()
+
+        if source_field is not None:
             self.xdmf.write_function(
-                self.heat_eq.Q,
+                source_field,
                 self.t
             )
 
@@ -139,6 +142,8 @@ class HeatSolver:
         )
 
         self.A.assemble()
+
+
         print(self.A.getInfo())
 
         #zero_rows = self.A.findZeroRows()
@@ -211,6 +216,32 @@ class HeatSolver:
             f"   🔥 Initial Tmin: {u0.min():.6f}"
         )
 
+    def get_source_field(self):
+        """Return the active surface heat-flux field."""
+
+        source = self.heat_eq.physics.get("source", {})
+
+        if not source.get("enabled", False):
+            return None
+
+        source_type = source.get(
+            "type",
+            "gaussian"
+        ).lower()
+
+        if source_type == "gaussian":
+            return self.heat_eq.q_gaussian
+
+        elif source_type == "lamp":
+            return self.heat_eq.q_lamp
+
+        elif source_type == "laser":
+            return self.heat_eq.q_laser
+
+        else:
+            raise ValueError(
+                f"Unknown source type '{source_type}'"
+            )
     # ======================================================
     # update celsius
     # ======================================================
@@ -223,7 +254,30 @@ class HeatSolver:
 
     def step(self):
 
+        # --------------------------------------------------
+        # Update source
+        # --------------------------------------------------
+
         self.heat_eq.update_source(self.t)
+
+        q = self.heat_eq.q_gaussian
+
+        debug = False 
+        if q is not None and debug:
+
+            print(
+                f"q_gaussian max = "
+                f"{np.max(q.x.array):.12e}"
+            )
+
+            print(
+                f"q_gaussian nonzero = "
+                f"{np.count_nonzero(q.x.array)}"
+            )
+
+        # --------------------------------------------------
+        # Assemble RHS
+        # --------------------------------------------------
 
         with self.b.localForm() as loc:
             loc.set(0)
@@ -232,11 +286,23 @@ class HeatSolver:
             self.b,
             self.L_form
         )
+
         self.b.ghostUpdate(
             addv=PETSc.InsertMode.ADD_VALUES,
             mode=PETSc.ScatterMode.REVERSE,
         )
-        print("b norm =", self.b.norm())
+
+        #print(
+        #    f"b norm = "
+        #    f"{self.b.norm():.12e}"
+        #)
+
+        # --------------------------------------------------
+        # Solve
+        # --------------------------------------------------
+
+        u_before = self.u_n.x.array.copy()
+
         self.solver.solve(
             self.b,
             self.u.x.petsc_vec
@@ -244,34 +310,150 @@ class HeatSolver:
 
         reason = self.solver.getConvergedReason()
 
-        print("PETSc reason:", reason)
-        print("Iterations :", self.solver.getIterationNumber())
+        #print(
+        #    "PETSc reason:",
+        #    reason
+        #)
+
+        #print(
+        #    "Iterations :",
+        #    self.solver.getIterationNumber()
+        #)
 
         if reason < 0:
 
-            print(self.solver.getResidualNorm())
+            print(
+                self.solver.getResidualNorm()
+            )
 
             raise RuntimeError(
                 f"Solver failed ({reason})"
             )
 
-        u_arr = self.u.x.array
+        # --------------------------------------------------
+        # Temperature change
+        # --------------------------------------------------
 
-        if np.isnan(u_arr).any():
+        u_after = self.u.x.array
+
+        du = u_after - u_before
+        debug = False
+        if debug:
+
+
+            print(
+                f"ΔT: min={du.min():.12e} K "
+                f"max={du.max():.12e} K "
+                f"mean={du.mean():.12e} K"
+            )
+
+        if np.isnan(u_after).any():
 
             raise ValueError(
                 "NaN detected in solution"
             )
 
-        # Update previous solution
-        self.u_n.x.array[:] = u_arr
+        # --------------------------------------------------
+        # New simulation time
+        # --------------------------------------------------
 
-        self.t += self.heat_eq.dt
-        self.point_tracker.sample(
-            self.t,
-            self.u,
+        new_time = (
+            self.t
+            + self.heat_eq.dt
         )
-        return self.u
+
+        # --------------------------------------------------
+        # Energy balance
+        #
+        # IMPORTANT:
+        # This must happen after the new temperature
+        # has been solved, but before u_n is replaced.
+        # --------------------------------------------------
+
+        energy = self.heat_eq.energy_balance.update(
+            self.u,
+            new_time,
+        )
+
+        # --------------------------------------------------
+        # Print energy balance
+        # --------------------------------------------------
+
+        if self.heat_eq.debug:
+
+            print(
+                "\n=== ENERGY BALANCE ==="
+            )
+
+            print(
+                f"Source power       = "
+                f"{energy['source_W']:.6e} W"
+            )
+
+            print(
+                f"Convection loss    = "
+                f"{energy['convection_W']:.6e} W"
+            )
+
+            print(
+                f"Radiation loss     = "
+                f"{energy['radiation_W']:.6e} W"
+            )
+
+            print(
+                f"Net boundary power = "
+                f"{energy['net_boundary_W']:.6e} W"
+            )
+
+            print(
+                f"Source energy      = "
+                f"{energy['source_J']:.6e} J"
+            )
+
+            print(
+                f"Convection energy  = "
+                f"{energy['convection_J']:.6e} J"
+            )
+
+            print(
+                f"Radiation energy   = "
+                f"{energy['radiation_J']:.6e} J"
+            )
+
+            print(
+                f"Thermal energy     = "
+                f"{energy['thermal_energy_J']:.6e} J"
+            )
+
+            print(
+                f"Energy residual    = "
+                f"{energy['energy_residual_J']:.6e} J"
+            )
+
+            print(
+                "========================"
+            )
+
+        # --------------------------------------------------
+        # Update previous solution
+        # --------------------------------------------------
+
+        self.u_n.x.array[:] = u_after
+
+        # --------------------------------------------------
+        # Advance simulation time
+        # --------------------------------------------------
+
+        self.t = new_time
+
+        # --------------------------------------------------
+        # Return energy information
+        #
+        # The caller can merge this dictionary into the
+        # existing ROI/temperature CSV record.
+        # --------------------------------------------------
+
+        return energy
 
     # ======================================================
     # SAVE FRAME
@@ -279,23 +461,10 @@ class HeatSolver:
 
     def save_frame(self):
 
-        self.update_celsius()
-
         self.xdmf.write_function(
             self.u,
             self.t
         )
-
-        self.xdmf.write_function(
-            self.u_c,
-            self.t
-        )
-
-        if self.heat_eq.has_source:
-            self.xdmf.write_function(
-                self.heat_eq.Q,
-                self.t
-            )
 
     # ======================================================
     # RUN
@@ -323,14 +492,40 @@ class HeatSolver:
         print(
             f"   save every = {save_every}"
         )
-        #sample initial condition
+        # --------------------------------------------------
+        # Initial condition
+        # --------------------------------------------------
+
         self.point_tracker.sample(
             self.t,
             self.u,
         )
+
+        # --------------------------------------------------
+        # Time integration
+        # --------------------------------------------------
+
         while self.t < T:
 
-            self.step()
+            # --------------------------------------------------
+            # Solve one timestep
+            # --------------------------------------------------
+
+            energy = self.step()
+
+            # --------------------------------------------------
+            # Store ROI + energy information
+            # --------------------------------------------------
+
+            self.point_tracker.sample(
+                self.t,
+                self.u,
+                energy=energy,
+            )
+
+            # --------------------------------------------------
+            # Save visualization frame
+            # --------------------------------------------------
 
             if step % save_every == 0:
 
@@ -351,6 +546,10 @@ class HeatSolver:
                 )
 
             step += 1
+
+        # --------------------------------------------------
+        # Write ROI + energy CSV
+        # --------------------------------------------------
 
         self.point_tracker.write_csv()
         self.xdmf.close()

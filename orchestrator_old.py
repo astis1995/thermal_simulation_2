@@ -171,6 +171,7 @@ if __name__ == "__main__":
 
     sim_name = sys.argv[1]
 
+
     try:
         run_simulation(sim_name)
     except Exception as e:

@@ -64,7 +64,7 @@ def ensure_mesh_exists(
     parameters_file: str,
     cache: bool = True
 ):
-
+    
     mesh_cfg = config["domain"]["mesh"]
 
     mesh_dir = os.path.join(
@@ -157,7 +157,12 @@ def ensure_mesh_exists(
     # --------------------------------------------------
     # Generate mesh
     # --------------------------------------------------
-
+    source_config = (
+        config
+        .get("simulation", {})
+        .get("physics", {})
+        .get("source")
+    )
     generate_mesh_from_stl(
         stl_path=stl_path,
         output_dir=mesh_dir,
@@ -165,7 +170,8 @@ def ensure_mesh_exists(
         lc_min=mesh_cfg["lc_min"],
         lc_max=mesh_cfg["lc_max"],
         geometry_representation=geometry_representation,
-        unit=config["domain"].get("unit", "mm")
+        unit=config["domain"].get("unit", "mm"),
+        source_config=source_config,
     )
 
     # --------------------------------------------------
@@ -257,9 +263,9 @@ def prepare_simulation(
     cache: bool = True
 ):
 
-    print(f"\n🧪 Preparing simulation: {sim_name}")
-    print(f"📄 Parameters file: {parameters_file}")
-    print(f"📦 Mesh cache enabled: {cache}")
+    print(f"\n Preparing simulation: {sim_name}")
+    print(f" Parameters file: {parameters_file}")
+    print(f" Mesh cache enabled: {cache}")
 
     base_input = os.path.join(
         "inputs",
@@ -365,7 +371,7 @@ if __name__ == "__main__":
             cache=cache
         )
 
-        print("\n🚀 Starting physics...")
+        print("\n Starting physics...(run_simulation)")
 
         solution = run_simulation(
             mesh=mesh,
@@ -374,10 +380,41 @@ if __name__ == "__main__":
             output_dir=base_output
         )
 
-        print("\n✅ Simulation completed")
+        print("\n Simulation completed")
 
     except Exception as e:
 
-        print(f"❌ Failed: {e}")
+        import traceback
+        import sys
 
-        sys.exit(1)
+        print("\n" + "=" * 70, flush=True)
+        print("❌ SIMULATION FAILED", flush=True)
+        print("=" * 70, flush=True)
+
+        print(f"Simulation : {sim_name}", flush=True)
+        print(f"Parameters : {parameters_file}", flush=True)
+        print(f"Output dir : {base_output}", flush=True)
+
+        print("\nException:", flush=True)
+        print(f"  Type    : {type(e).__name__}", flush=True)
+        print(f"  Message : {repr(e)}", flush=True)
+        print(f"  Args    : {e.args}", flush=True)
+
+        print("\nException traceback object:", flush=True)
+        print(f"  {e.__traceback__}", flush=True)
+
+        print("\nFull traceback:", flush=True)
+        print("-" * 70, flush=True)
+
+        traceback.print_exception(
+            type(e),
+            e,
+            e.__traceback__,
+            file=sys.stdout
+        )
+
+        print("-" * 70, flush=True)
+        print("End traceback", flush=True)
+        print("=" * 70, flush=True)
+
+        raise

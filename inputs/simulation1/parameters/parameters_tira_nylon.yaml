@@ -13,14 +13,14 @@ domain:
     output_dir: mesh
 
     # Element size (mm)
-    lc_min: 0.2
+    lc_min: 0.1
     lc_max: 0.5
 
   material:
     # Nylon (20 °C)
     k: 0.25         # W/(m·K) https://en.wikipedia.org/wiki/Nylon
-    rho: 1150    # kg/m³ https://en.wikipedia.org/wiki/Nylon
-    c: 1700          #  J/(kg·K) https://store.gierregomma.com/shop/nylon-6-sheet/?attachment_id=2981&download_file=9l4b29yss73lh
+    rho: 1150.0    # kg/m³ https://en.wikipedia.org/wiki/Nylon
+    c: 1700.0          #  J/(kg·K) https://store.gierregomma.com/shop/nylon-6-sheet/?attachment_id=2981&download_file=9l4b29yss73lh
 
 simulation:
 
@@ -29,7 +29,7 @@ simulation:
 
   time:
     dt: 0.2          # s
-    T: 600.0           # s
+    T: 60.0           # s
 
   # ----------------------------------------------------
   # Initial condition
@@ -46,33 +46,37 @@ simulation:
   physics:
 
     # ----------------------------------------------
-    # Volumetric heat source
+    # Heat sources:
+    # lamp: One direction over the complete surface
+    # gaussian: a spot
     # ----------------------------------------------
     source:
       name: Sun
       enabled: true
 
-      type: lamp
+      type: gaussian
 
-      source: [0.0, +inf, 0.0] #
+      source: [0.0, 0.0, +inf] #Not enabled in gaussian
 
-      direction: [0.0, -1.0, 0.0]
+      direction: [0.0, 0.0, -1.0]
       # Total source power (future implementation)
-      power: 250.10        # W/m2 Sun: 832.715 W/m2 Lampara a 40,38 mm 250,1031533 W/m2
-
-      value: 2.5e12
+      power: 250.10        # Not enabled in gaussian
+      irradiance: 250.10   #
+      value: 2.5e12 #Not enabled in gaussian
 
       # Gaussian center (meters)
       center:
-        [0.0, 0.0, 0.005]
+        [0.0, 0.0, 0.0]
 
       # Gaussian radius
       radius: 0.002    # m
 
       # Source active between these times
-      t_start: 0.0      # s
-      t_end: 600.0       # s
+      t_start: 5.0      # s
+      t_end: 50.0       # s
 
+      #absorption_coefficient
+      absorption_coefficient: 100.0
     # ----------------------------------------------
     # Convection
     # ----------------------------------------------
@@ -95,22 +99,26 @@ roi:
     tolerance: 5e-4
   points:
 
+    # Near -X end, top surface
     - name: Left
-      location: [-0.002470473, -0.004185681, -0.006781751]
+      location: [-0.400, 0.0, 0.00125]
       variables:
         - temperature
 
+    # Near +X end, top surface
     - name: Right
-      location: [-0.001115140, 0.005589383, -0.005121521]
+      location: [0.400, 0.0, 0.00125]
       variables:
         - temperature
 
+    # Center, top surface
     - name: Center
-      location: [-0.001820740, 0.000601505, -0.006505752]
+      location: [0.0, 0.0, 0.00125]
       variables:
         - temperature
 
-    - name: Cabeza
-      location: [-0.003014972, 0.001827026, 0.002142696]
+    # Center, bottom surface
+    - name: Bottom
+      location: [0.0, 0.0, -0.00125]
       variables:
         - temperature

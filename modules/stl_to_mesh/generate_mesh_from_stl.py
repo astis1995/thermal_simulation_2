@@ -13,6 +13,7 @@ def generate_mesh_from_stl(
     feature_angle: float = 40.0,
     geometry_representation: str = "surface",
     unit: str = "mm",
+    source_config=None,
 ):
     """
     Generate either a surface mesh or a volumetric tetrahedral mesh
@@ -49,6 +50,7 @@ def generate_mesh_from_stl(
             lc_max=lc_max,
             feature_angle=feature_angle,
             unit=unit,
+            source_config=source_config,
         )
 
     else:

@@ -16,7 +16,7 @@ domain:
     # Teflon
     #alpha: 0.122 mm2/s https://en.wikipedia.org/wiki/Polytetrafluoroethylene
     k: 0.25          # https://en.wikipedia.org/wiki/Polytetrafluoroethylene
-    rho: 2200    # kg/m³ https://en.wikipedia.org/wiki/Polytetrafluoroethylene
+    rho: 2200.0    # kg/m³ https://en.wikipedia.org/wiki/Polytetrafluoroethylene
     c: 931.0          # 193 J/(kg·K) deducido a partir de alpha rho y k
 
 simulation:
@@ -51,9 +51,9 @@ simulation:
 
       type: lamp
 
-      source: [0.0, +inf, 0.0]
+      source: [0.0, 0.0, +inf] #
 
-      direction: [0.0, -1.0, 0.0]
+      direction: [0.0, 0.0, -1.0]
       # Total source power (future implementation)
       power: 250.10        # W/m2 Sun: 832.715 W/m2 Lampara a 40,38 mm 250,1031533 W/m2
 

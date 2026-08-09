@@ -1,6 +1,9 @@
 # modules/physics/fields.py
 
+import numpy as np
+
 from dolfinx import fem
+from petsc4py import PETSc
 
 
 class PhysicalFields:
@@ -52,9 +55,20 @@ def create_uniform_fields(mesh, material_cfg: dict, thickness: float = None):
     c_val = material_cfg["c"]
 
     # Create constants
-    k = fem.Constant(mesh, k_val)
-    rho = fem.Constant(mesh, rho_val)
-    c = fem.Constant(mesh, c_val)
+    k = fem.Constant(
+        mesh,
+        np.asarray(k_val, dtype=PETSc.ScalarType)
+    )
+
+    rho = fem.Constant(
+        mesh,
+        np.asarray(rho_val, dtype=PETSc.ScalarType)
+    )
+
+    c = fem.Constant(
+        mesh,
+        np.asarray(c_val, dtype=PETSc.ScalarType)
+    )
 
     # Surface physics nuance
     if thickness is not None:
@@ -62,7 +76,10 @@ def create_uniform_fields(mesh, material_cfg: dict, thickness: float = None):
     else:
         alpha_val = k_val / (rho_val * c_val)
 
-    alpha = fem.Constant(mesh, alpha_val)
+    alpha = fem.Constant(
+        mesh,
+        np.asarray(alpha_val, dtype=PETSc.ScalarType)
+    )
 
     return PhysicalFields(k=k, rho=rho, c=c, alpha=alpha)
 

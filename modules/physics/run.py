@@ -165,7 +165,19 @@ def run_simulation(
         fields=fields,
         dt=dt,
         config=config,
-        debug=True
+        debug=False
+    )
+
+    # --------------------------------------------------
+    # Initialize energy balance
+    # --------------------------------------------------
+
+    heat_eq.energy_balance.initialize(
+        u_n
+    )
+
+    print(
+        "   ✔ Energy balance initialized"
     )
 
     # --------------------------------------------------
