@@ -1,0 +1,16 @@
+input_folder: /mnt/c/Documents/thermal_simulation_2/inputs/empiric/Camara termica/Thermal Data 20260717/CICIMAUCR0105-kalinini/images/117-125
+
+output_folder: /mnt/c/Documents/thermal_simulation_2/inputs/empiric/Camara termica/Thermal Data 20260717/CICIMAUCR0105-kalinini/images/117-125/output
+
+fit_model: heating
+
+temperature_unit: Celsius
+averaging_radius: 0
+timestamp_priority:
+  - ocr
+  - file
+
+points:
+  mode: load_or_select
+  file: points.json
+  force_reselect: false

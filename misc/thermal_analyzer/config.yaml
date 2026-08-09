@@ -1,0 +1,96 @@
+# ============================================================
+# Thermal Analyzer Configuration
+# ============================================================
+
+# Folder containing the IR_XXXXX.csv and IR_XXXXX.jpg files.
+# Leave empty to ask the user with a file dialog.
+input_folder: ""
+
+# First image to process.
+# If empty, the program automatically selects the lowest IR number.
+first_image: ""
+
+# ============================================================
+# Point Selection
+# ============================================================
+
+points:
+
+  # Maximum number of points the user may select.
+  max_points: 10
+
+  # Radius used for averaging temperatures.
+  #
+  # 0 -> single pixel
+  # 1 -> 3x3 average
+  # 2 -> 5x5 average
+  averaging_radius: 1
+
+  # Optional names.
+  # If empty, P1, P2, ... are used.
+  names: []
+
+# ============================================================
+# Time
+# ============================================================
+
+time:
+
+  # Time origin.
+  # "first" means first processed image is t = 0.
+  zero: first
+
+# ============================================================
+# Timestamp Extraction Priority
+# ============================================================
+
+timestamp:
+  priority:
+    - csv
+    - jpg
+    - ocr
+    - file
+
+# ============================================================
+# Curve Fitting
+# ============================================================
+
+fit:
+
+  enabled: true
+
+  model: exponential
+
+  equation: "T0 + A*(1-exp(-k*t))"
+
+  max_iterations: 10000
+
+# ============================================================
+# Plotting
+# ============================================================
+
+plots:
+
+  dpi: 300
+
+  show: true
+
+  save_individual: true
+
+  save_combined: true
+
+# ============================================================
+# Output
+# ============================================================
+
+output:
+
+  folder: results
+
+  temperatures_csv: temperatures.csv
+
+  fit_csv: fit_parameters.csv
+
+  selected_points_image: selected_points.png
+
+  combined_plot: all_points.png

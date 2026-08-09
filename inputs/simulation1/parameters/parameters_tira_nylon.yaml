@@ -1,10 +1,12 @@
 # ----------------------------------------------------
 # Simulacion con datos de absorbancia
+# Material nylon
 # Iluminacion superior ubicacion en +z inf, direccion -z
-# Iluminacion izquierda ubicacion en -y inf, direccion +y
+# Iluminacion izquierda ubicacion en -y inf, direccion +y}
+# Luz iluminando el centro
 # ----------------------------------------------------
 domain:
-  path: stl/elitro_limpio_mm.stl #centro del elitro coor: () parte baja ()
+  path: stl/tira_nylon_mm.stl #centro del elitro coor: () parte baja ()
   unit: mm
 
   mesh:
@@ -15,14 +17,10 @@ domain:
     lc_max: 0.5
 
   material:
-    # Copper (20 °C)
-    #k: 40.0          # W/(m·K)
-    #rho: 8960.0       # kg/m³
-    #c: 385.0          # J/(kg·K)}
-    # elitro
-    k: 0.001          # W/(m·K)
-    rho: 506.1548429      # kg/m³
-    c: 25000.0          # 193 J/(kg·K)
+    # Nylon (20 °C)
+    k: 0.25         # W/(m·K) https://en.wikipedia.org/wiki/Nylon
+    rho: 1150    # kg/m³ https://en.wikipedia.org/wiki/Nylon
+    c: 1700          #  J/(kg·K) https://store.gierregomma.com/shop/nylon-6-sheet/?attachment_id=2981&download_file=9l4b29yss73lh
 
 simulation:
 
@@ -56,7 +54,7 @@ simulation:
 
       type: lamp
 
-      source: [0.0, +inf, 0.0]
+      source: [0.0, +inf, 0.0] #
 
       direction: [0.0, -1.0, 0.0]
       # Total source power (future implementation)
@@ -84,11 +82,11 @@ simulation:
       ambient: 298.15   # K
 
     # ----------------------------------------------
-    # Radiation
+    # Radiation. emissivity must be in the range 8 um to 12 um, 833 cm-1 -1250 cm-1,
     # ----------------------------------------------
     radiation:
       enabled: true
-      emissivity: 0.240 #promedio: 0.240 kalinini: alpha 0.248 alpha_vis = 0.040, alpha_ir = 0.208, #resplendens: alpha 0.229, alpha_vis 0.192 alpha_ir = 0.037
+      emissivity: 0.88 #https://journals.sagepub.com/doi/abs/10.1177/0040517519888825
       ambient: 298.15   # K
 
 roi:
