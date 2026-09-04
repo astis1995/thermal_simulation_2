@@ -7,39 +7,41 @@ from ufl import (
     dot,
     grad,
 )
-import numpy as np
-from .gaussian import (
-    initialize_gaussian,
-    update_gaussian_source,
+
+from .fixed_heat import (
+    initialize_fixed_heat,
+    update_fixed_heat,
 )
 
-from .lamp import (
-    initialize_lamp,
-    update_lamp_source,
-)
-
-from .laser import (
-    initialize_laser,
-    update_laser_source,
+from .fixed_temperature import (
+    initialize_fixed_temperature,
 )
 
 from .energy_balance import EnergyBalance
+
+
 class HeatEquation:
     """
-    Transient heat equation with optional surface heat-flux sources.
+    Transient heat equation.
 
-        rho*c*dT/dt = div(k*grad(T))
+    rho*c*dT/dt = div(k*grad(T)) + Q
 
-    with optional boundary heat flux:
+    Optional physics:
 
-        - Gaussian surface heat flux [W/m²]
-        - Lamp surface heat flux [W/m²]
-        - Laser surface heat flux [W/m²]
-        - convection
-        - radiation (linearized)
+        - fixed_heat:
+            volumetric heat generation [W/m^3]
+            inside a rectangular prism.
 
-    The incident heat flux is applied as a Neumann boundary
-    condition on the illuminated surface.
+        - fixed_temperature:
+            Dirichlet temperature constraint [K]
+            inside a rectangular prism.
+
+        - convection:
+            h [W/(m^2 K)]
+            ambient temperature [K]
+
+        - radiation:
+            linearized radiation boundary condition.
     """
 
     SIGMA = 5.670374419e-8
@@ -60,148 +62,125 @@ class HeatEquation:
         self.dt = float(dt)
         self.debug = debug
 
+        # --------------------------------------------------
+        # PHYSICS CONFIGURATION
+        # --------------------------------------------------
+
         self.physics = (
             config
             .get("simulation", {})
             .get("physics", {})
         )
 
-        # Sources
-        self.has_source = False
+        # --------------------------------------------------
+        # FLAGS
+        # --------------------------------------------------
+
+        self.has_fixed_heat = False
+        self.has_fixed_temperature = False
         self.has_convection = False
         self.has_radiation = False
 
-        self.q_gaussian = None
-        self.q_lamp = None
-        self.q_laser = None
+        # --------------------------------------------------
+        # FIXED HEAT
+        # --------------------------------------------------
 
-        self.ds_gaussian = None
-        self.ds_lamp = None
-        self.ds_laser = None
+        self.q_fixed_heat = None
+        self.dx_fixed_heat = None
+        self.fixed_heat_volume = None
+        self.fixed_heat_cells = None
+        self.fixed_heat_tags = None
 
-        source_cfg = self.physics.get(
-            "source",
+        fixed_heat_cfg = self.physics.get(
+            "fixed_heat",
             {}
         )
 
-        source_type = source_cfg.get(
-            "type",
-            "gaussian"
-        ).lower()
+        if fixed_heat_cfg.get("enabled", False):
 
-        if source_type == "gaussian":
-
-            initialize_gaussian(
+            initialize_fixed_heat(
                 self,
-                source_cfg
+                fixed_heat_cfg,
             )
 
-        elif source_type == "lamp":
+            self.has_fixed_heat = True
 
-            initialize_lamp(
+        # --------------------------------------------------
+        # FIXED TEMPERATURE
+        # --------------------------------------------------
+
+        self.fixed_temperature_bcs = []
+        self.fixed_temperature_dofs = None
+        self.fixed_temperature_value = None
+        self.fixed_temperature_constant = None
+
+        fixed_temperature_cfg = self.physics.get(
+            "fixed_temperature",
+            {}
+        )
+
+        if fixed_temperature_cfg.get("enabled", False):
+
+            initialize_fixed_temperature(
                 self,
-                source_cfg
+                fixed_temperature_cfg,
             )
 
-        elif source_type == "laser":
+            self.has_fixed_temperature = True
 
-            initialize_laser(
-                self,
-                source_cfg
-            )
-
-        elif source_type:
-
-            raise ValueError(
-                f"Unknown source type '{source_type}'"
-            )
-
-
-
+        # --------------------------------------------------
+        # VARIATIONAL FUNCTIONS
+        # --------------------------------------------------
 
         V_ufl = V.ufl_function_space()
 
         self.u = TrialFunction(V_ufl)
         self.v = TestFunction(V_ufl)
+
+        # --------------------------------------------------
+        # ENERGY BALANCE
+        # --------------------------------------------------
+
         self.energy_balance = EnergyBalance(self)
-    # --------------------------------------------------
-    # SOURCE UPDATE
-    # --------------------------------------------------
 
-    def update_source(self, t):
+        if self.debug:
+            self._print_initialization()
 
-        source = self.physics.get(
-            "source"
-        )
+    # ======================================================
+    # UPDATE PHYSICS
+    # ======================================================
 
-        if (
-            source is None
-            or not source.get("enabled", False)
-        ):
+    def update_physics(self, t):
+        """
+        Update all time-dependent physics.
 
-            if self.q_gaussian is not None:
-                self.q_gaussian.x.array[:] = 0.0
+        Currently:
+            - fixed volumetric heat
+        """
 
-            if self.q_lamp is not None:
-                self.q_lamp.x.array[:] = 0.0
+        if self.has_fixed_heat:
 
-            if self.q_laser is not None:
-                self.q_laser.x.array[:] = 0.0
-
-            return
-
-        source_type = source.get(
-            "type",
-            "gaussian"
-        ).lower()
-
-        # --------------------------------------------------
-        # Gaussian surface source
-        # --------------------------------------------------
-
-        if source_type == "gaussian":
-
-            update_gaussian_source(
+            update_fixed_heat(
                 self,
-                source,
+                self.physics["fixed_heat"],
                 t,
             )
 
-        # --------------------------------------------------
-        # Lamp surface source
-        # --------------------------------------------------
-
-        elif source_type == "lamp":
-
-            update_lamp_source(
-                self,
-                source,
-                t,
-            )
-
-        # --------------------------------------------------
-        # Laser surface source
-        # --------------------------------------------------
-
-        elif source_type == "laser":
-
-            update_laser_source(
-                self,
-                source,
-                t,
-            )
-
-        else:
-
-            raise ValueError(
-                f"Unknown source type '{source_type}'"
-            )
+    # ======================================================
+    # BUILD VARIATIONAL FORMS
+    # ======================================================
 
     def build_forms(self, u_n):
 
         alpha = self.fields.alpha
-        rho = float(self.fields.rho.value)
-        c = float(self.fields.c.value)
+
+        rho = float(
+            self.fields.rho.value
+        )
+
+        c = float(
+            self.fields.c.value
+        )
 
         dt = self.dt
 
@@ -209,129 +188,101 @@ class HeatEquation:
         v = self.v
 
         # --------------------------------------------------
-        # Base equation
+        # BASE HEAT EQUATION
         # --------------------------------------------------
 
         a = (
             u * v * dx
-            + dt * alpha * dot(grad(u), grad(v)) * dx
+            + dt
+            * alpha
+            * dot(grad(u), grad(v))
+            * dx
         )
 
         L = (
             u_n * v * dx
         )
 
-        # --------------------------------------------------
-        # Incident surface source
-        # --------------------------------------------------
+        # ==================================================
+        # FIXED VOLUMETRIC HEAT
+        # ==================================================
 
-        source = self.physics.get(
-            "source"
+        if self.has_fixed_heat:
+
+            if self.q_fixed_heat is None:
+                raise RuntimeError(
+                    "fixed_heat is enabled, but "
+                    "q_fixed_heat was not initialized."
+                )
+
+            if self.dx_fixed_heat is None:
+                raise RuntimeError(
+                    "fixed_heat is enabled, but "
+                    "dx_fixed_heat was not initialized."
+                )
+
+            L += (
+                dt
+                * self.q_fixed_heat
+                / (rho * c)
+                * v
+                * self.dx_fixed_heat(1)
+            )
+
+        # ==================================================
+        # CONVECTION
+        # ==================================================
+
+        convection = self.physics.get(
+            "convection",
+            {}
         )
 
-        if source and source.get(
-            "enabled",
-            False
-        ):
-
-            self.has_source = True
-
-            source_type = source.get(
-                "type",
-                "gaussian"
-            ).lower()
-
-            # --------------------------------------------------
-            # Gaussian surface source
-            # --------------------------------------------------
-
-            if source_type == "gaussian":
-
-                flux = self.q_gaussian
-
-                if flux is None:
-                    raise RuntimeError(
-                        "Gaussian source is enabled, but q_gaussian is None. "
-                        "Check initialize_gaussian() and the source configuration."
-                    )
-
-                if self.ds_gaussian is None:
-                    raise RuntimeError(
-                        "Gaussian source is enabled, but ds_gaussian is None. "
-                        "Check initialize_gaussian() and the boundary-marker setup."
-                    )
-
-                L += (
-                    dt
-                    * flux
-                    / (rho * c)
-                    * v
-                    * self.ds_gaussian(1)
-                )
-
-
-            # --------------------------------------------------
-            # Lamp surface source
-            # --------------------------------------------------
-
-            elif source_type == "lamp":
-
-                flux = self.q_lamp
-
-                L += (
-                    dt
-                    * flux
-                    / (rho * c)
-                    * v
-                    * self.ds_lamp(1)
-                )
-
-            # --------------------------------------------------
-            # Laser surface source
-            # --------------------------------------------------
-
-            elif source_type == "laser":
-
-                flux = self.q_laser
-
-                L += (
-                    dt
-                    * flux
-                    / (rho * c)
-                    * v
-                    * self.ds_laser(1)
-                )
-
-            else:
-
-                raise ValueError(
-                    f"Unknown source type '{source_type}'"
-                )
-        # --------------------------------------------------
-        # Convection
-        # --------------------------------------------------
-
-        convection = self.physics.get("convection")
-
-        if convection and convection.get("enabled", False):
+        if convection.get("enabled", False):
 
             self.has_convection = True
 
-            h = float(convection["h"])
-            T_inf = float(convection["ambient"])
+            h = float(
+                convection["h"]
+            )
+
+            T_inf = float(
+                convection["ambient"]
+            )
+
+            if h < 0.0:
+                raise ValueError(
+                    "convection.h must be >= 0."
+                )
 
             beta = h / (rho * c)
 
-            a += dt * beta * u * v * ds
-            L += dt * beta * T_inf * v * ds
+            a += (
+                dt
+                * beta
+                * u
+                * v
+                * ds
+            )
 
-        # --------------------------------------------------
-        # Radiation (linearized)
-        # --------------------------------------------------
+            L += (
+                dt
+                * beta
+                * T_inf
+                * v
+                * ds
+            )
 
-        radiation = self.physics.get("radiation")
+        # ==================================================
+        # RADIATION
+        # ==================================================
 
-        if radiation and radiation.get("enabled", False):
+        radiation = self.physics.get(
+            "radiation",
+            {}
+        )
+
+        if radiation.get("enabled", False):
 
             self.has_radiation = True
 
@@ -343,6 +294,25 @@ class HeatEquation:
                 radiation["ambient"]
             )
 
+            if not 0.0 <= emissivity <= 1.0:
+                raise ValueError(
+                    "radiation.emissivity must be between "
+                    "0 and 1."
+                )
+
+            if T_inf < 0.0:
+                raise ValueError(
+                    "radiation.ambient must be >= 0 K."
+                )
+
+            # ----------------------------------------------
+            # Linearized radiation coefficient
+            #
+            # q_rad ≈ h_rad (T - T_inf)
+            #
+            # h_rad = 4 eps sigma T_inf^3
+            # ----------------------------------------------
+
             hr = (
                 4.0
                 * emissivity
@@ -352,70 +322,166 @@ class HeatEquation:
 
             beta = hr / (rho * c)
 
-            a += dt * beta * u * v * ds
-            L += dt * beta * T_inf * v * ds
+            a += (
+                dt
+                * beta
+                * u
+                * v
+                * ds
+            )
+
+            L += (
+                dt
+                * beta
+                * T_inf
+                * v
+                * ds
+            )
+
+        # --------------------------------------------------
+        # DEBUG
+        # --------------------------------------------------
 
         if self.debug:
             self._print_info()
 
         return a, L
 
-    # --------------------------------------------------
+    # ======================================================
+    # INITIALIZATION DIAGNOSTICS
+    # ======================================================
+
+    def _print_initialization(self):
+
+        print("\n" + "=" * 60)
+        print("HeatEquation initialization")
+        print("=" * 60)
+
+        print(
+            f"dt                 = {self.dt:.6g} s"
+        )
+
+        print(
+            f"alpha              = "
+            f"{float(self.fields.alpha.value):.6e} m²/s"
+        )
+
+        print(
+            f"fixed_heat         = "
+            f"{'ON' if self.has_fixed_heat else 'OFF'}"
+        )
+
+        print(
+            f"fixed_temperature = "
+            f"{'ON' if self.has_fixed_temperature else 'OFF'}"
+        )
+
+        print(
+            f"convection         = "
+            f"{'ON' if self.physics.get('convection', {}).get('enabled', False) else 'OFF'}"
+        )
+
+        print(
+            f"radiation          = "
+            f"{'ON' if self.physics.get('radiation', {}).get('enabled', False) else 'OFF'}"
+        )
+
+        print(
+            f"mesh               = "
+            f"topo:{self.mesh.topology.dim}, "
+            f"geo:{self.mesh.geometry.dim}"
+        )
+
+        print("=" * 60)
+
+    # ======================================================
+    # FORMULATION DIAGNOSTICS
+    # ======================================================
 
     def _print_info(self):
 
-        print("\n🧠 HeatEquation")
+        print("\nHeatEquation")
 
-        print(f"   dt           = {self.dt}")
         print(
-            f"   alpha        = {float(self.fields.alpha.value):.6e}"
+            f"   dt           = {self.dt}"
         )
 
         print(
-            f"   source       = {'ON' if self.has_source else 'OFF'}"
+            f"   alpha        = "
+            f"{float(self.fields.alpha.value):.6e}"
         )
 
-        print(
-            f"   convection   = {'ON' if self.has_convection else 'OFF'}"
-        )
+        print("\nVariational formulation")
 
-        print(
-            f"   radiation    = {'ON' if self.has_radiation else 'OFF'}"
-        )
+        print("   ✓ Transient term")
 
-        print(
-            f"   mesh         = topo:{self.mesh.topology.dim}, geo:{self.mesh.geometry.dim}"
-        )
+        print("   ✓ Thermal diffusion")
 
-        print("\n📐 Variational formulation")
+        if self.has_fixed_heat:
 
-        print("   ✓ Diffusion")
+            print(
+                "   ✓ Fixed volumetric heat"
+            )
 
-        if self.has_source:
-
-            source = self.physics.get("source", {})
-            source_type = source.get("type", "gaussian")
-
-            if source_type == "gaussian":
+            if self.fixed_heat_volume is not None:
 
                 print(
-                    "   ✓ Gaussian incident surface flux"
+                    f"     volume = "
+                    f"{self.fixed_heat_volume:.6e} m³"
                 )
 
-            elif source_type == "lamp":
+        if self.has_fixed_temperature:
 
-                print(
-                    "   ✓ Lamp incident surface flux"
-                )
+            print(
+                "   ✓ Fixed temperature"
+            )
 
-            elif source_type == "laser":
+            print(
+                f"     T = "
+                f"{self.fixed_temperature_value:.6f} K"
+            )
 
-                print(
-                    "   ✓ Laser incident Gaussian surface flux"
-                )
+            print(
+                f"     DOFs = "
+                f"{len(self.fixed_temperature_dofs)}"
+            )
 
         if self.has_convection:
-            print("   ✓ Convection")
+
+            convection = self.physics[
+                "convection"
+            ]
+
+            print(
+                "   ✓ Convection"
+            )
+
+            print(
+                f"     h = "
+                f"{float(convection['h']):.6g} W/(m² K)"
+            )
+
+            print(
+                f"     T∞ = "
+                f"{float(convection['ambient']):.6f} K"
+            )
 
         if self.has_radiation:
-            print("   ✓ Radiation")
+
+            radiation = self.physics[
+                "radiation"
+            ]
+
+            print(
+                "   ✓ Radiation"
+            )
+
+            print(
+                f"     emissivity = "
+                f"{float(radiation['emissivity']):.6g}"
+            )
+
+            print(
+                f"     T∞ = "
+                f"{float(radiation['ambient']):.6f} K"
+            )

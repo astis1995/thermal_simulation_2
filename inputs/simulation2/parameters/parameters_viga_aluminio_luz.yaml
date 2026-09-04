@@ -42,50 +42,52 @@ simulation:
 
   physics:
 
-    fixed_heat:
-      enabled: true
-      power: 10.0
-
-      region:
-        type: box
-        center: [-0.11639, 0.0, 0.0]
-
-        length_x: 0.030
-        length_y: 0.030
-        length_z: 0.030
-
-      t_start: 0.0
-      t_end: 600.0
-
-
-    fixed_temperature:
+    # ----------------------------------------------
+    # Volumetric heat source
+    # ----------------------------------------------
+    source:
+      # Laser can use power
+      # Lamps use irradiance
+      #
+      name: Sun
       enabled: false
 
-      # Imposed temperature [K]
-      temperature: 350.0
+      type: lamp
 
-      region:
-        type: box
+      source: [0.0, 0.0, +inf] #
 
-        # Center of the prism [m]
-        center: [0.0, 0.0, 0.005]
+      direction: [0.0, 0.0, -1.0]
+      # Total source power (future implementation)
+      power: 250.10        # W/m2 Sun: 832.715 W/m2 Lampara a 40,38 mm 250,1031533 W/m2
+      irradiance: 250.10  #
+      value: 2.5e12
 
-        # Full dimensions of the prism [m]
-        length_x: 0.010
-        length_y: 0.005
-        length_z: 0.002
+      # Gaussian center (meters)
+      center:
+        [0.0, 0.0, 0.005]
 
+      # Gaussian radius
+      radius: 0.002    # m
 
+      # Source active between these times
+      t_start: 0.0      # s
+      t_end: 600.0       # s
+
+    # ----------------------------------------------
+    # Convection
+    # ----------------------------------------------
     convection:
       enabled: true
-      h: 10.0
-      ambient: 298.15
+      h: 10.0           # W/(m²·K)
+      ambient: 298.15   # K
 
-
+    # ----------------------------------------------
+    # Radiation
+    # ----------------------------------------------
     radiation:
       enabled: true
-      emissivity: 0.01
-      ambient: 298.15
+      emissivity: 0.01 #UV-VIS
+      ambient: 298.15   # K
 
 roi:
   search:

@@ -9,7 +9,8 @@ from dolfinx.io import XDMFFile
 
 from modules.stl_to_mesh import generate_mesh_from_stl
 from modules.physics.run import run_simulation
-
+from modules.stl_to_mesh.test_stl import validate_stl
+from modules.stl_to_mesh.fix_stl import fix_stl
 
 # ==========================================================
 # CONFIG
@@ -19,7 +20,7 @@ def load_config(config_path: str):
 
     if not os.path.exists(config_path):
         raise FileNotFoundError(
-            f"❌ Config not found: {config_path}"
+            f" Config not found: {config_path}"
         )
 
     with open(config_path, "r") as f:
@@ -27,7 +28,7 @@ def load_config(config_path: str):
 
     if "domain" not in config:
         raise ValueError(
-            "❌ Missing 'domain' section"
+            " Missing 'domain' section"
         )
 
     return config
@@ -41,7 +42,7 @@ def load_mesh(xdmf_path: str):
 
     if not os.path.exists(xdmf_path):
         raise FileNotFoundError(
-            f"❌ Mesh file not found: {xdmf_path}"
+            f" Mesh file not found: {xdmf_path}"
         )
 
     print(f"📥 Loading mesh: {xdmf_path}")
@@ -64,7 +65,7 @@ def ensure_mesh_exists(
     parameters_file: str,
     cache: bool = True
 ):
-    
+
     mesh_cfg = config["domain"]["mesh"]
 
     mesh_dir = os.path.join(
@@ -109,7 +110,7 @@ def ensure_mesh_exists(
             return mesh_path
 
         print(
-            f"♻️ Rebuilding mesh (cache=False)"
+            "♻️ Rebuilding mesh (cache=False)"
         )
 
         try:
@@ -117,13 +118,14 @@ def ensure_mesh_exists(
         except OSError:
             pass
 
-        # Remove matching HDF5 file as well
+        # Remove matching HDF5 file
         h5_path = mesh_path.replace(
             ".xdmf",
             ".h5"
         )
 
         if os.path.exists(h5_path):
+
             try:
                 os.remove(h5_path)
             except OSError:
@@ -141,11 +143,84 @@ def ensure_mesh_exists(
     )
 
     if not os.path.exists(stl_path):
+
         raise FileNotFoundError(
             f"❌ STL file not found: {stl_path}"
         )
 
-    print(f"📥 STL source: {stl_path}")
+    print(
+        f"📥 STL source: {stl_path}"
+    )
+
+    # --------------------------------------------------
+    # Validate original STL
+    # --------------------------------------------------
+
+    print("\n🔍 Validating STL...")
+
+    stl_is_valid = validate_stl(
+        stl_path=stl_path,
+        config=config,
+        verbose=True
+    )
+
+    # --------------------------------------------------
+    # Repair STL if necessary
+    # --------------------------------------------------
+
+    if not stl_is_valid:
+
+        print("\n⚠️ STL failed validation.")
+        print("🔧 Attempting automatic repair...")
+
+        fixed_stl_path = fix_stl(
+            stl_path=stl_path,
+            config=config,
+            verbose=True
+        )
+
+        # --------------------------------------------------
+        # Validate repaired STL
+        # --------------------------------------------------
+
+        print(
+            "\n🔍 Validating repaired STL..."
+        )
+
+        fixed_is_valid = validate_stl(
+            stl_path=fixed_stl_path,
+            config=config,
+            verbose=True
+        )
+
+        if not fixed_is_valid:
+
+            raise RuntimeError(
+                "\n❌ STL remains invalid after repair.\n"
+                f"Original STL : {stl_path}\n"
+                f"Repaired STL : {fixed_stl_path}\n"
+                "\n"
+                "Mesh generation with Gmsh was aborted."
+            )
+
+        print(
+            "\n✅ Repaired STL passed validation."
+        )
+
+        # Use repaired STL from this point forward
+        stl_path = str(
+            fixed_stl_path
+        )
+
+    else:
+
+        print(
+            "\n✅ Original STL passed validation."
+        )
+
+    # --------------------------------------------------
+    # Geometry representation
+    # --------------------------------------------------
 
     geometry_representation = (
         config
@@ -154,15 +229,28 @@ def ensure_mesh_exists(
         .get("representation", "surface")
     )
 
+    print(
+        f"\n📐 Geometry representation: "
+        f"{geometry_representation}"
+    )
+
     # --------------------------------------------------
-    # Generate mesh
+    # Physics source configuration
     # --------------------------------------------------
+
     source_config = (
         config
         .get("simulation", {})
         .get("physics", {})
         .get("source")
     )
+
+    # --------------------------------------------------
+    # Generate mesh
+    # --------------------------------------------------
+
+    print("\n🔨 Generating mesh with Gmsh...")
+
     generate_mesh_from_stl(
         stl_path=stl_path,
         output_dir=mesh_dir,
@@ -175,12 +263,14 @@ def ensure_mesh_exists(
     )
 
     # --------------------------------------------------
-    # Validation
+    # Validate generated mesh
     # --------------------------------------------------
 
     if not os.path.exists(mesh_path):
+
         raise RuntimeError(
-            f"❌ Mesh generation failed: {mesh_path}"
+            f"❌ Mesh generation failed: "
+            f"{mesh_path}"
         )
 
     h5_path = mesh_path.replace(
@@ -189,12 +279,14 @@ def ensure_mesh_exists(
     )
 
     if not os.path.exists(h5_path):
+
         raise RuntimeError(
-            f"❌ HDF5 mesh file missing: {h5_path}"
+            f"❌ HDF5 mesh file missing: "
+            f"{h5_path}"
         )
 
     print(
-        f"✅ Mesh ready: {mesh_path}"
+        f"\n✅ Mesh ready: {mesh_path}"
     )
 
     return mesh_path
@@ -218,7 +310,7 @@ def validate_mesh(mesh, config):
         2 if representation == "surface" else 3
     )
 
-    print("\n✅ Mesh loaded successfully")
+    print("\n Mesh loaded successfully")
     print(f"   - Representation      : {representation}")
     print(f"   - Topology dimension  : {topo_dim}")
     print(f"   - Geometry dimension  : {geo_dim}")
@@ -226,19 +318,19 @@ def validate_mesh(mesh, config):
 
     if topo_dim != expected_topology:
         raise ValueError(
-            f"❌ Expected topology={expected_topology}, "
+            f" Expected topology={expected_topology}, "
             f"got {topo_dim}"
         )
 
     if geo_dim != 3:
         raise ValueError(
-            f"❌ Expected embedded 3D geometry, got {geo_dim}"
+            f" Expected embedded 3D geometry, got {geo_dim}"
         )
 
     xyz_min = mesh.geometry.x.min(axis=0)
     xyz_max = mesh.geometry.x.max(axis=0)
 
-    print("\n📊 Bounding box [m]")
+    print("\n Bounding box [m]")
 
     print(
         f"   X: {xyz_min[0]:.6e} -> {xyz_max[0]:.6e}"
@@ -388,7 +480,7 @@ if __name__ == "__main__":
         import sys
 
         print("\n" + "=" * 70, flush=True)
-        print("❌ SIMULATION FAILED", flush=True)
+        print(" SIMULATION FAILED", flush=True)
         print("=" * 70, flush=True)
 
         print(f"Simulation : {sim_name}", flush=True)

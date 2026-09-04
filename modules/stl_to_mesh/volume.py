@@ -1,3 +1,5 @@
+# modules/stl_to_mesh/volume.py
+
 import os
 
 import gmsh
@@ -18,7 +20,10 @@ from .volume_smart_mesh import generate_smart_volume_mesh
 # DEFAULTS
 # ==========================================================
 
-DEFAULT_SIMPLE_GEOMETRY_MAX_NODES = 20
+# The current aluminum-bar STL has only 24 unique nodes.
+# It is geometrically simple, so it should use the smart
+# volume mesher rather than the generic STL pathway.
+DEFAULT_SIMPLE_GEOMETRY_MAX_NODES = 100
 
 
 # ==========================================================
@@ -28,8 +33,6 @@ DEFAULT_SIMPLE_GEOMETRY_MAX_NODES = 20
 def get_stl_node_count():
     """
     Return the number of unique mesh nodes in the imported STL.
-
-    The STL is loaded into Gmsh as a discrete surface mesh.
     """
 
     node_tags, _, _ = gmsh.model.mesh.getNodes()
@@ -44,8 +47,8 @@ def is_simple_geometry(max_nodes):
     """
     Determine whether the imported STL is considered simple.
 
-    A geometry is considered simple when the imported STL
-    contains <= max_nodes unique mesh nodes.
+    This is only used to choose the meshing strategy.
+    It does NOT determine whether the STL is geometrically valid.
     """
 
     n_nodes = get_stl_node_count()
@@ -80,16 +83,18 @@ def generate_generic_volume_mesh(
     unit,
 ):
     """
-    Existing generic STL -> volume pathway.
+    Generate a tetrahedral volume mesh from an imported STL.
 
-    IMPORTANT:
-    This intentionally does NOT use:
+    Gmsh operates on the STL in its original coordinate units.
 
-        classifySurfaces()
-        createGeometry()
+    Therefore, if the STL is in mm:
 
-    because those operations caused problems with
-    complicated STL geometries.
+        geometry = mm
+        lc_min   = mm
+        lc_max   = mm
+
+    Conversion to SI units is performed later by
+    convert_model_to_mesh(unit).
     """
 
     xdmf_path = os.path.join(
@@ -98,6 +103,29 @@ def generate_generic_volume_mesh(
     )
 
     print("🔷 Generic volume meshing")
+
+    # ------------------------------------------------------
+    # Mesh size
+    # ------------------------------------------------------
+
+    lc_min_gmsh = float(lc_min)
+    lc_max_gmsh = float(lc_max)
+
+    if lc_min_gmsh <= 0.0:
+        raise ValueError(
+            "lc_min must be > 0."
+        )
+
+    if lc_max_gmsh < lc_min_gmsh:
+        raise ValueError(
+            "lc_max must be >= lc_min."
+        )
+
+    print("\n=== GMSH MESH SIZE ===")
+    print(f"Geometry unit : {unit}")
+    print(f"lc_min        : {lc_min_gmsh} {unit}")
+    print(f"lc_max        : {lc_max_gmsh} {unit}")
+    print("======================\n")
 
     # ------------------------------------------------------
     # Imported STL surfaces
@@ -127,26 +155,33 @@ def generate_generic_volume_mesh(
     )
 
     # ------------------------------------------------------
-    # Create closed volume
+    # Configure mesh sizing
     # ------------------------------------------------------
 
-    surface_loop = gmsh.model.geo.addSurfaceLoop(
-        surface_tags
+    gmsh.option.setNumber(
+        "Mesh.MeshSizeMin",
+        lc_min_gmsh,
     )
 
-    print(
-        f"Surface loop id: {surface_loop}"
+    gmsh.option.setNumber(
+        "Mesh.MeshSizeMax",
+        lc_max_gmsh,
     )
 
-    volume = gmsh.model.geo.addVolume(
-        [surface_loop]
+    gmsh.option.setNumber(
+        "Mesh.MeshSizeFromPoints",
+        1,
     )
 
-    print(
-        f"Volume id: {volume}"
+    gmsh.option.setNumber(
+        "Mesh.MeshSizeFromCurvature",
+        0,
     )
 
-    gmsh.model.geo.synchronize()
+    gmsh.option.setNumber(
+        "Mesh.MeshSizeExtendFromBoundary",
+        1,
+    )
 
     # ------------------------------------------------------
     # Mesh-size diagnostics
@@ -194,28 +229,108 @@ def generate_generic_volume_mesh(
     )
 
     # ------------------------------------------------------
+    # Create closed volume
+    # ------------------------------------------------------
+
+    surface_loop = gmsh.model.geo.addSurfaceLoop(
+        surface_tags
+    )
+
+    print(
+        f"Surface loop id: {surface_loop}"
+    )
+
+    volume = gmsh.model.geo.addVolume(
+        [surface_loop]
+    )
+
+    print(
+        f"Volume id: {volume}"
+    )
+
+    gmsh.model.geo.synchronize()
+
+    # ------------------------------------------------------
     # Generate tetrahedral mesh
     # ------------------------------------------------------
 
+    print(
+        "🔨 Generating 3D tetrahedral mesh..."
+    )
+
     gmsh.model.mesh.generate(3)
+
+    # ------------------------------------------------------
+    # Mesh statistics
+    # ------------------------------------------------------
+
+    node_tags, _, _ = (
+        gmsh.model.mesh.getNodes()
+    )
+
+    element_types, element_tags, _ = (
+        gmsh.model.mesh.getElements(3)
+    )
+
+    total_3d_elements = sum(
+        len(tags)
+        for tags in element_tags
+    )
+
+    print("\n=== GMSH MESH RESULT ===")
+
+    print(
+        f"Nodes        : {len(node_tags)}"
+    )
+
+    print(
+        f"3D elements  : {total_3d_elements}"
+    )
+
+    print(
+        f"Element types: {element_types}"
+    )
+
+    print("========================\n")
+
+    if total_3d_elements <= 100:
+        print("⚠ WARNING:")
+        print(
+            f"   Only {total_3d_elements} "
+            "3D elements were generated."
+        )
+        print(
+            f"   Expected a substantially finer mesh "
+            f"for lc_max = {lc_max_gmsh} {unit}."
+        )
 
     # ------------------------------------------------------
     # Physical volume
     # ------------------------------------------------------
 
-    gmsh.model.addPhysicalGroup(
-        3,
-        [volume],
-        1,
+    physical_groups = gmsh.model.getPhysicalGroups(
+        3
     )
+
+    if not physical_groups:
+
+        gmsh.model.addPhysicalGroup(
+            3,
+            [volume],
+            1,
+        )
 
     # ------------------------------------------------------
     # Convert to DOLFINx
     # ------------------------------------------------------
 
-    mesh = convert_model_to_mesh(unit)
+    mesh = convert_model_to_mesh(
+        unit
+    )
 
-    print_mesh_info(mesh)
+    print_mesh_info(
+        mesh
+    )
 
     write_xdmf(
         mesh,
@@ -249,43 +364,14 @@ def generate_volume_mesh(
     """
     Generate a volumetric tetrahedral mesh from an STL.
 
-    The STL is automatically classified according to its
-    number of mesh nodes.
-
     Simple geometry
         -> volume_smart_mesh.py
 
     Complex geometry
         -> generic STL volume meshing
 
-    Parameters
-    ----------
-    stl_path:
-        Path to the STL file.
-
-    output_dir:
-        Directory where the XDMF mesh is written.
-
-    output_filename:
-        Name of the XDMF output.
-
-    lc_min:
-        Minimum characteristic mesh size for the generic
-        pathway.
-
-    lc_max:
-        Maximum characteristic mesh size for the generic
-        pathway.
-
-    feature_angle:
-        Retained for compatibility with the existing API.
-
-    unit:
-        Units of the original STL.
-
-    simple_geometry_max_nodes:
-        Maximum number of STL nodes for the geometry to
-        be treated as simple.
+    The node-count threshold only determines which meshing
+    strategy is used.
     """
 
     os.makedirs(
@@ -325,7 +411,9 @@ def generate_volume_mesh(
         # LOAD STL
         # ==================================================
 
-        load_stl(stl_path)
+        load_stl(
+            stl_path
+        )
 
         # ==================================================
         # DETECT GEOMETRY
@@ -345,7 +433,7 @@ def generate_volume_mesh(
                 "\n➡ Using volume_smart_mesh.py"
             )
 
-            return generate_smart_volume_mesh(
+            result = generate_smart_volume_mesh(
                 output_dir=output_dir,
                 output_filename=output_filename,
                 lc_min=lc_min,
@@ -355,23 +443,25 @@ def generate_volume_mesh(
                 source_config=source_config,
             )
 
+            return result
+
         # ==================================================
         # COMPLEX GEOMETRY
         # ==================================================
 
-        else:
+        print(
+            "\n➡ Using generic STL volume mesher"
+        )
 
-            print(
-                "\n➡ Using generic STL volume mesher"
-            )
+        result = generate_generic_volume_mesh(
+            output_dir=output_dir,
+            output_filename=output_filename,
+            lc_min=lc_min,
+            lc_max=lc_max,
+            unit=unit,
+        )
 
-            return generate_generic_volume_mesh(
-                output_dir=output_dir,
-                output_filename=output_filename,
-                lc_min=lc_min,
-                lc_max=lc_max,
-                unit=unit,
-            )
+        return result
 
     finally:
 

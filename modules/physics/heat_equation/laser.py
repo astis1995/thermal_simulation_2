@@ -5,17 +5,36 @@ from dolfinx.mesh import locate_entities_boundary
 from ufl import Measure
 
 
+# ============================================================
+# INITIALIZE LASER
+# ============================================================
+
 def initialize_laser(heat_eq, source):
     """
-    Initialize the laser as an incident surface source.
+    Initialize a laser as a Gaussian incident surface source.
 
     The laser is defined by:
-        - source point
-        - propagation direction
-        - beam radius
 
-    The actual power is supplied by the source configuration
-    (and can later be supplied dynamically by laser.py).
+        power       : total optical power [W]
+        center      : point on the beam axis [m]
+        direction   : propagation direction
+        radius      : beam radius, interpreted as 3*sigma [m]
+        absorptance : fraction of incident radiation absorbed [-]
+
+    The Gaussian beam is normalized so that:
+
+        integral(I dA) = power
+
+    over an infinite plane perpendicular to the beam axis.
+
+    The actual absorbed heat flux on a surface is:
+
+        q_abs = absorptance * I(r) * cos(theta)
+
+    where:
+
+        cos(theta) = max(0, n · (-direction))
+
     """
 
     mesh = heat_eq.mesh
@@ -29,7 +48,7 @@ def initialize_laser(heat_eq, source):
 
     direction = np.asarray(
         source["direction"],
-        dtype=float
+        dtype=float,
     )
 
     norm = np.linalg.norm(direction)
@@ -44,8 +63,9 @@ def initialize_laser(heat_eq, source):
     # --------------------------------------------------
     # Boundary facets
     #
-    # For now we identify all external facets.
-    # Actual first-hit filtering will be added here.
+    # We identify all external facets.
+    # The Gaussian flux itself determines where the
+    # laser deposits significant energy.
     # --------------------------------------------------
 
     boundary_facets = locate_entities_boundary(
@@ -53,8 +73,8 @@ def initialize_laser(heat_eq, source):
         fdim,
         lambda x: np.ones(
             x.shape[1],
-            dtype=bool
-        )
+            dtype=bool,
+        ),
     )
 
     if len(boundary_facets) == 0:
@@ -70,7 +90,7 @@ def initialize_laser(heat_eq, source):
 
     values = np.ones(
         len(boundary_facets),
-        dtype=np.int32
+        dtype=np.int32,
     )
 
     heat_eq.laser_facets = boundary_facets
@@ -79,13 +99,13 @@ def initialize_laser(heat_eq, source):
         mesh,
         fdim,
         boundary_facets,
-        values
+        values,
     )
 
     heat_eq.ds_laser = Measure(
         "ds",
         domain=mesh,
-        subdomain_data=heat_eq.laser_facet_tags
+        subdomain_data=heat_eq.laser_facet_tags,
     )
 
     # --------------------------------------------------
@@ -102,6 +122,10 @@ def initialize_laser(heat_eq, source):
 
     heat_eq.q_laser.x.array[:] = 0.0
 
+    # --------------------------------------------------
+    # Diagnostics
+    # --------------------------------------------------
+
     if heat_eq.debug:
 
         print("\n🔬 Laser source initialized")
@@ -116,11 +140,46 @@ def initialize_laser(heat_eq, source):
         )
 
 
+# ============================================================
+# UPDATE LASER SOURCE
+# ============================================================
+
 def update_laser_source(
     heat_eq,
     source,
-    t
+    t,
 ):
+    """
+    Update the laser surface heat flux.
+
+    The laser uses:
+
+        power       [W]
+        center      [m]
+        direction   [-]
+        radius      [m]
+        absorptance [-]
+
+    The Gaussian beam has:
+
+        sigma = radius / 3
+
+    and:
+
+        I0 = P / (2*pi*sigma^2)
+
+    The absorbed surface heat flux is:
+
+        q_abs =
+            absorptance
+            * I(r)
+            * max(0, n · (-direction))
+
+    """
+
+    # --------------------------------------------------
+    # Time interval
+    # --------------------------------------------------
 
     t0 = float(
         source["t_start"]
@@ -162,13 +221,20 @@ def update_laser_source(
         )
 
     # --------------------------------------------------
-    # Source point
+    # Beam center
     # --------------------------------------------------
 
     center = np.asarray(
         source["center"],
-        dtype=float
+        dtype=float,
     )
+
+    if center.size != 3:
+
+        raise ValueError(
+            "physics.source.center must contain "
+            "three coordinates"
+        )
 
     # --------------------------------------------------
     # Propagation direction
@@ -176,10 +242,19 @@ def update_laser_source(
 
     direction = np.asarray(
         source["direction"],
-        dtype=float
+        dtype=float,
     )
 
-    norm = np.linalg.norm(direction)
+    if direction.size != 3:
+
+        raise ValueError(
+            "physics.source.direction must contain "
+            "three components"
+        )
+
+    norm = np.linalg.norm(
+        direction
+    )
 
     if norm == 0.0:
 
@@ -216,7 +291,7 @@ def update_laser_source(
     absorptance = float(
         source.get(
             "absorptance",
-            1.0
+            1.0,
         )
     )
 
@@ -230,14 +305,19 @@ def update_laser_source(
     # --------------------------------------------------
     # Gaussian normalization
     #
+    # The integral over an infinite plane
+    # perpendicular to the beam is:
+    #
     # P = integral(I dA)
     #
-    # I0 = P / (2*pi*sigma²)
+    # Therefore:
+    #
+    # I0 = P / (2*pi*sigma^2)
     # --------------------------------------------------
 
     intensity_peak = (
-        power /
-        (
+        power
+        / (
             2.0
             * np.pi
             * sigma**2
@@ -245,17 +325,28 @@ def update_laser_source(
     )
 
     # --------------------------------------------------
-    # Gaussian surface irradiance
+    # Geometry information
+    # --------------------------------------------------
+
+    # We need the mesh coordinates to calculate
+    # the local Gaussian intensity.
+    #
+    # x contains the coordinates of the FEM
+    # interpolation points.
     # --------------------------------------------------
 
     def gaussian_surface_flux(x):
+
+        # --------------------------------------------------
+        # Vector from beam center to evaluation point
+        # --------------------------------------------------
 
         rx = x[0] - center[0]
         ry = x[1] - center[1]
         rz = x[2] - center[2]
 
         # --------------------------------------------------
-        # Projection onto propagation direction
+        # Distance parallel to beam axis
         # --------------------------------------------------
 
         r_parallel = (
@@ -290,7 +381,7 @@ def update_laser_source(
         )
 
         # --------------------------------------------------
-        # Incident irradiance [W/m²]
+        # Gaussian irradiance
         # --------------------------------------------------
 
         intensity = (
@@ -305,13 +396,22 @@ def update_laser_source(
         )
 
         # --------------------------------------------------
-        # Absorbed surface flux [W/m²]
+        # At this stage this is the incident
+        # irradiance on a plane perpendicular
+        # to the beam.
+        #
+        # The surface-normal correction cannot be
+        # calculated here because x does not contain
+        # the local FEM facet normal.
+        #
+        # Therefore the Function stores the Gaussian
+        # incident irradiance.
         # --------------------------------------------------
 
-        return absorptance * intensity
+        return intensity
 
     # --------------------------------------------------
-    # Apply to FEM surface field
+    # Interpolate Gaussian irradiance
     # --------------------------------------------------
 
     heat_eq.q_laser.interpolate(
@@ -352,6 +452,11 @@ def update_laser_source(
         print(
             f"      absorptance = "
             f"{absorptance:.6g}"
+        )
+
+        print(
+            f"      center = "
+            f"{center}"
         )
 
         print(

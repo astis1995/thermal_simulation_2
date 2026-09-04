@@ -9,7 +9,9 @@ from dolfinx import fem
 from dolfinx.io import XDMFFile
 from dolfinx.fem.petsc import (
     assemble_matrix,
-    assemble_vector
+    assemble_vector,
+    apply_lifting,
+    set_bc,
 )
 from .roi import PointTracker
 from petsc4py import PETSc
@@ -137,8 +139,15 @@ class HeatSolver:
         # MATRIX
         # ==================================================
 
+        self.bcs = getattr(
+            self.heat_eq,
+            "fixed_temperature_bcs",
+            []
+        )
+
         self.A = assemble_matrix(
-            self.a_form
+            self.a_form,
+            bcs=self.bcs
         )
 
         self.A.assemble()
@@ -217,9 +226,12 @@ class HeatSolver:
         )
 
     def get_source_field(self):
-        """Return the active surface heat-flux field."""
+        """Return the source field suitable for XDMF output."""
 
-        source = self.heat_eq.physics.get("source", {})
+        source = self.heat_eq.physics.get(
+            "source",
+            {}
+        )
 
         if not source.get("enabled", False):
             return None
@@ -230,15 +242,21 @@ class HeatSolver:
         ).lower()
 
         if source_type == "gaussian":
+
             return self.heat_eq.q_gaussian
 
-        elif source_type == "lamp":
-            return self.heat_eq.q_lamp
-
         elif source_type == "laser":
+
             return self.heat_eq.q_laser
 
+        elif source_type == "lamp":
+
+            # q_lamp is a fem.Constant, not a fem.Function.
+            # XDMF cannot write Constants directly.
+            return None
+
         else:
+
             raise ValueError(
                 f"Unknown source type '{source_type}'"
             )
@@ -254,30 +272,209 @@ class HeatSolver:
 
     def step(self):
 
-        # --------------------------------------------------
-        # Update source
-        # --------------------------------------------------
+        # ==================================================
+        # UPDATE TIME-DEPENDENT PHYSICS
+        # ==================================================
 
-        self.heat_eq.update_source(self.t)
+        self.heat_eq.update_physics(self.t)
 
-        q = self.heat_eq.q_gaussian
+        # ==================================================
+        # PHYSICS DIAGNOSTICS
+        # ==================================================
 
-        debug = False 
-        if q is not None and debug:
+        if self.heat_eq.debug:
 
-            print(
-                f"q_gaussian max = "
-                f"{np.max(q.x.array):.12e}"
+            print("\n=== PHYSICS DIAGNOSTICS ===")
+
+            # --------------------------------------------------
+            # FIXED HEAT
+            # --------------------------------------------------
+
+            if self.heat_eq.has_fixed_heat:
+
+                cfg = self.heat_eq.physics[
+                    "fixed_heat"
+                ]
+
+                print(
+                    "Fixed heat     : ON"
+                )
+
+                if "power" in cfg:
+
+                    power = float(
+                        cfg["power"]
+                    )
+
+                    print(
+                        f"Power          : "
+                        f"{power:.6e} W"
+                    )
+
+                elif "energy_per_step" in cfg:
+
+                    energy = float(
+                        cfg["energy_per_step"]
+                    )
+
+                    print(
+                        f"Energy/step    : "
+                        f"{energy:.6e} J"
+                    )
+
+                    print(
+                        f"Equivalent P   : "
+                        f"{energy / self.heat_eq.dt:.6e} W"
+                    )
+
+                print(
+                    f"Volume         : "
+                    f"{self.heat_eq.fixed_heat_volume:.6e} m³"
+                )
+
+                region = cfg.get(
+                    "region",
+                    {}
+                )
+
+                print(
+                    f"Center         : "
+                    f"{region.get('center')}"
+                )
+
+                print(
+                    f"Length X       : "
+                    f"{region.get('length_x'):.6e} m"
+                )
+
+                print(
+                    f"Length Y       : "
+                    f"{region.get('length_y'):.6e} m"
+                )
+
+                print(
+                    f"Length Z       : "
+                    f"{region.get('length_z'):.6e} m"
+                )
+
+                print(
+                    f"q volumetric   : "
+                    f"{self.heat_eq.q_fixed_heat.value:.6e} W/m³"
+                )
+
+            else:
+
+                print(
+                    "Fixed heat     : OFF"
+                )
+
+            # --------------------------------------------------
+            # FIXED TEMPERATURE
+            # --------------------------------------------------
+
+            if self.heat_eq.has_fixed_temperature:
+
+                cfg = self.heat_eq.physics[
+                    "fixed_temperature"
+                ]
+
+                print(
+                    "Fixed temp     : ON"
+                )
+
+                print(
+                    f"Temperature    : "
+                    f"{self.heat_eq.fixed_temperature_value:.6f} K"
+                )
+
+                print(
+                    f"DOFs           : "
+                    f"{len(self.heat_eq.fixed_temperature_dofs)}"
+                )
+
+                region = cfg.get(
+                    "region",
+                    {}
+                )
+
+                print(
+                    f"Center         : "
+                    f"{region.get('center')}"
+                )
+
+            else:
+
+                print(
+                    "Fixed temp     : OFF"
+                )
+
+            # --------------------------------------------------
+            # CONVECTION
+            # --------------------------------------------------
+
+            convection = self.heat_eq.physics.get(
+                "convection",
+                {}
             )
 
             print(
-                f"q_gaussian nonzero = "
-                f"{np.count_nonzero(q.x.array)}"
+                "Convection     : "
+                + (
+                    "ON"
+                    if convection.get("enabled", False)
+                    else "OFF"
+                )
             )
 
-        # --------------------------------------------------
-        # Assemble RHS
-        # --------------------------------------------------
+            if convection.get("enabled", False):
+
+                print(
+                    f"   h           : "
+                    f"{float(convection['h']):.6e} W/(m² K)"
+                )
+
+                print(
+                    f"   ambient     : "
+                    f"{float(convection['ambient']):.6f} K"
+                )
+
+            # --------------------------------------------------
+            # RADIATION
+            # --------------------------------------------------
+
+            radiation = self.heat_eq.physics.get(
+                "radiation",
+                {}
+            )
+
+            print(
+                "Radiation      : "
+                + (
+                    "ON"
+                    if radiation.get("enabled", False)
+                    else "OFF"
+                )
+            )
+
+            if radiation.get("enabled", False):
+
+                print(
+                    f"   emissivity  : "
+                    f"{float(radiation['emissivity']):.6e}"
+                )
+
+                print(
+                    f"   ambient     : "
+                    f"{float(radiation['ambient']):.6f} K"
+                )
+
+            print(
+                "============================"
+            )
+
+        # ==================================================
+        # ASSEMBLE RHS
+        # ==================================================
 
         with self.b.localForm() as loc:
             loc.set(0)
@@ -287,42 +484,56 @@ class HeatSolver:
             self.L_form
         )
 
-        self.b.ghostUpdate(
-            addv=PETSc.InsertMode.ADD_VALUES,
-            mode=PETSc.ScatterMode.REVERSE,
+        # ==================================================
+        # APPLY DIRICHLET CONDITIONS
+        # ==================================================
+
+        if self.bcs:
+
+            apply_lifting(
+                self.b,
+                [self.a_form],
+                [self.bcs],
+            )
+
+            self.b.ghostUpdate(
+                addv=PETSc.InsertMode.ADD_VALUES,
+                mode=PETSc.ScatterMode.REVERSE,
+            )
+
+            set_bc(
+                self.b,
+                self.bcs,
+            )
+
+        else:
+
+            self.b.ghostUpdate(
+                addv=PETSc.InsertMode.ADD_VALUES,
+                mode=PETSc.ScatterMode.REVERSE,
+            )
+
+        # ==================================================
+        # SOLVE
+        # ==================================================
+
+        u_before = (
+            self.u_n.x.array.copy()
         )
-
-        #print(
-        #    f"b norm = "
-        #    f"{self.b.norm():.12e}"
-        #)
-
-        # --------------------------------------------------
-        # Solve
-        # --------------------------------------------------
-
-        u_before = self.u_n.x.array.copy()
 
         self.solver.solve(
             self.b,
             self.u.x.petsc_vec
         )
 
-        reason = self.solver.getConvergedReason()
-
-        #print(
-        #    "PETSc reason:",
-        #    reason
-        #)
-
-        #print(
-        #    "Iterations :",
-        #    self.solver.getIterationNumber()
-        #)
+        reason = (
+            self.solver.getConvergedReason()
+        )
 
         if reason < 0:
 
             print(
+                "PETSc residual =",
                 self.solver.getResidualNorm()
             )
 
@@ -330,22 +541,76 @@ class HeatSolver:
                 f"Solver failed ({reason})"
             )
 
-        # --------------------------------------------------
-        # Temperature change
-        # --------------------------------------------------
+        # ==================================================
+        # TEMPERATURE DIAGNOSTICS
+        # ==================================================
 
         u_after = self.u.x.array
 
-        du = u_after - u_before
-        debug = False
-        if debug:
+        du = (
+            u_after - u_before
+        )
 
+        if self.heat_eq.debug:
+
+            print("\n=== TEMPERATURE DIAGNOSTICS ===")
 
             print(
-                f"ΔT: min={du.min():.12e} K "
-                f"max={du.max():.12e} K "
-                f"mean={du.mean():.12e} K"
+                f"Tmin    = "
+                f"{u_after.min():.6f} K"
             )
+
+            print(
+                f"Tmax    = "
+                f"{u_after.max():.6f} K"
+            )
+
+            print(
+                f"ΔT min  = "
+                f"{du.min():.6e} K"
+            )
+
+            print(
+                f"ΔT max  = "
+                f"{du.max():.6e} K"
+            )
+
+            print(
+                f"ΔT mean = "
+                f"{du.mean():.6e} K"
+            )
+
+            # Check fixed temperature
+            if self.heat_eq.has_fixed_temperature:
+
+                fixed_T = (
+                    self.heat_eq.fixed_temperature_value
+                )
+
+                fixed_values = (
+                    u_after[
+                        self.heat_eq.fixed_temperature_dofs
+                    ]
+                )
+
+                max_error = np.max(
+                    np.abs(
+                        fixed_values - fixed_T
+                    )
+                )
+
+                print(
+                    f"Fixed T error = "
+                    f"{max_error:.6e} K"
+                )
+
+            print(
+                "================================"
+            )
+
+        # ==================================================
+        # NaN CHECK
+        # ==================================================
 
         if np.isnan(u_after).any():
 
@@ -353,31 +618,29 @@ class HeatSolver:
                 "NaN detected in solution"
             )
 
-        # --------------------------------------------------
-        # New simulation time
-        # --------------------------------------------------
+        # ==================================================
+        # NEW SIMULATION TIME
+        # ==================================================
 
         new_time = (
             self.t
             + self.heat_eq.dt
         )
 
-        # --------------------------------------------------
-        # Energy balance
-        #
-        # IMPORTANT:
-        # This must happen after the new temperature
-        # has been solved, but before u_n is replaced.
-        # --------------------------------------------------
+        # ==================================================
+        # ENERGY BALANCE
+        # ==================================================
 
-        energy = self.heat_eq.energy_balance.update(
-            self.u,
-            new_time,
+        energy = (
+            self.heat_eq.energy_balance.update(
+                self.u,
+                new_time,
+            )
         )
 
-        # --------------------------------------------------
-        # Print energy balance
-        # --------------------------------------------------
+        # ==================================================
+        # ENERGY DIAGNOSTICS
+        # ==================================================
 
         if self.heat_eq.debug:
 
@@ -434,24 +697,21 @@ class HeatSolver:
                 "========================"
             )
 
-        # --------------------------------------------------
-        # Update previous solution
-        # --------------------------------------------------
+        # ==================================================
+        # UPDATE PREVIOUS SOLUTION
+        # ==================================================
 
         self.u_n.x.array[:] = u_after
 
-        # --------------------------------------------------
-        # Advance simulation time
-        # --------------------------------------------------
+        # ==================================================
+        # ADVANCE TIME
+        # ==================================================
 
         self.t = new_time
 
-        # --------------------------------------------------
-        # Return energy information
-        #
-        # The caller can merge this dictionary into the
-        # existing ROI/temperature CSV record.
-        # --------------------------------------------------
+        # ==================================================
+        # RETURN ENERGY
+        # ==================================================
 
         return energy
 

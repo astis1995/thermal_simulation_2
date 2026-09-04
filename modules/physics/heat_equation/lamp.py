@@ -1,24 +1,41 @@
 from dolfinx import fem
-from dolfinx import fem, mesh
+from dolfinx import mesh
 from ufl import Measure
 import numpy as np
+
+
+# ============================================================
+# INITIALIZE LAMP
+# ============================================================
 
 def initialize_lamp(heat_eq, source):
     """
     Initialize a lamp source.
 
-    For volume meshes:
-        - Detect illuminated boundary facets.
+    The lamp is represented as an incident irradiance [W/m²]
+    applied to the illuminated boundary of the mesh.
 
-    For surface meshes:
+    For a volume mesh:
+        - Detect illuminated exterior facets.
+        - Apply the irradiance on those facets.
+
+    For a surface mesh:
         - Detect illuminated surface cells.
 
-    Then:
-        - Compute illuminated area.
-        - Build the integration measure.
+    The absorbed thermal flux is:
+
+        q_abs = irradiance * absorptivity
+
+    where:
+        irradiance   : incident radiation [W/m²]
+        absorptivity : fraction converted into heat [-]
     """
 
-    heat_eq.q_flux = fem.Constant(
+    # --------------------------------------------------
+    # Heat flux
+    # --------------------------------------------------
+
+    heat_eq.q_lamp = fem.Constant(
         heat_eq.mesh,
         0.0,
     )
@@ -26,7 +43,13 @@ def initialize_lamp(heat_eq, source):
     heat_eq.ds_lamp = None
     heat_eq.illuminated_area = None
 
-    source_position, light_direction = parse_lamp_geometry(source)
+    # --------------------------------------------------
+    # Lamp geometry
+    # --------------------------------------------------
+
+    source_position, light_direction = parse_lamp_geometry(
+        source
+    )
 
     topo_dim = heat_eq.mesh.topology.dim
 
@@ -54,7 +77,6 @@ def initialize_lamp(heat_eq, source):
             heat_eq.illuminated_area,
         ) = find_surface_lamp_facets(
             heat_eq.mesh,
-            source_position,
             light_direction,
         )
 
@@ -67,6 +89,7 @@ def initialize_lamp(heat_eq, source):
         )
 
     if len(heat_eq.boundary_facets) == 0:
+
         raise ValueError(
             "No illuminated facets found."
         )
@@ -98,7 +121,7 @@ def initialize_lamp(heat_eq, source):
     )
 
     # --------------------------------------------------
-    # Measure
+    # Integration measure
     # --------------------------------------------------
 
     if topo_dim == 3:
@@ -117,12 +140,24 @@ def initialize_lamp(heat_eq, source):
             subdomain_data=heat_eq.facet_tags,
         )
 
-    print(f"💡 Illuminated entities : {len(heat_eq.boundary_facets)}")
-    print(f"💡 Illuminated area     : {heat_eq.illuminated_area:.6e} m²")
+    # --------------------------------------------------
+    # Information
+    # --------------------------------------------------
 
-from dolfinx import mesh
-import numpy as np
+    print(
+        f"💡 Illuminated entities : "
+        f"{len(heat_eq.boundary_facets)}"
+    )
 
+    print(
+        f"💡 Illuminated area     : "
+        f"{heat_eq.illuminated_area:.6e} m²"
+    )
+
+
+# ============================================================
+# GEOMETRY UTILITIES
+# ============================================================
 
 def facet_normal(points):
     """
@@ -141,7 +176,11 @@ def facet_normal(points):
 
     return n / norm
 
+
 def triangle_area(points):
+    """
+    Compute the area of a triangular facet.
+    """
 
     v1 = points[1] - points[0]
     v2 = points[2] - points[0]
@@ -151,28 +190,70 @@ def triangle_area(points):
     )
 
 
+# ============================================================
+# FIND TOP FACETS
+# ============================================================
+
 def find_top_facets(
     domain,
-    light_direction=np.array([0.0, 0.0, 1.0])
+    light_direction=np.array(
+        [0.0, 0.0, 1.0]
+    ),
 ):
+    """
+    Find exterior facets illuminated by a parallel light source.
+    """
 
     fdim = domain.topology.dim - 1
 
-    domain.topology.create_connectivity(fdim, 0)
-    domain.topology.create_connectivity(fdim, domain.topology.dim)
-    domain.topology.create_connectivity(domain.topology.dim, fdim)
+    domain.topology.create_connectivity(
+        fdim,
+        0,
+    )
 
-    facets = mesh.exterior_facet_indices(domain.topology)
+    domain.topology.create_connectivity(
+        fdim,
+        domain.topology.dim,
+    )
+
+    domain.topology.create_connectivity(
+        domain.topology.dim,
+        fdim,
+    )
+
+    facets = mesh.exterior_facet_indices(
+        domain.topology
+    )
 
     x = domain.geometry.x
 
-    connectivity = domain.topology.connectivity(fdim, 0)
+    connectivity = domain.topology.connectivity(
+        fdim,
+        0,
+    )
 
     mesh_center = x.mean(axis=0)
 
     illuminated = []
 
     area = 0.0
+
+    light_direction = np.asarray(
+        light_direction,
+        dtype=float,
+    )
+
+    norm = np.linalg.norm(
+        light_direction
+    )
+
+    if norm == 0:
+
+        raise ValueError(
+            "Light direction cannot be the zero vector."
+        )
+
+    light_direction /= norm
 
     for facet in facets:
 
@@ -191,10 +272,17 @@ def find_top_facets(
         center = points.mean(axis=0)
 
         # Orient normal outwards
-        if np.dot(normal, center - mesh_center) < 0:
+        if np.dot(
+            normal,
+            center - mesh_center,
+        ) < 0:
+
             normal *= -1.0
 
-        if np.dot(normal, light_direction) > 0:
+        if np.dot(
+            normal,
+            light_direction,
+        ) > 0:
 
             illuminated.append(facet)
 
@@ -208,29 +296,114 @@ def find_top_facets(
         area,
     )
 
-def update_lamp_source(heat_eq, source, t):
+
+# ============================================================
+# UPDATE LAMP SOURCE
+# ============================================================
+
+def update_lamp_source(
+    heat_eq,
+    source,
+    t,
+):
     """
-    Update lamp boundary heat flux.
+    Update the absorbed lamp heat flux.
+
+    Incident radiation:
+
+        irradiance [W/m²]
+
+    Absorbed radiation:
+
+        q_abs [W/m²]
+             = irradiance * absorptivity
     """
 
-    t0 = float(source["t_start"])
-    t1 = float(source["t_end"])
+    t0 = float(
+        source["t_start"]
+    )
+
+    t1 = float(
+        source["t_end"]
+    )
+
+    # --------------------------------------------------
+    # Lamp OFF
+    # --------------------------------------------------
 
     if not (t0 <= t <= t1):
 
-        heat_eq.q_flux.value = 0.0
+        heat_eq.q_lamp.value = 0.0
 
         if heat_eq.debug:
-            print(f"💡 Lamp OFF (t={t:.3f}s)")
+
+            print(
+                f"💡 Lamp OFF "
+                f"(t={t:.3f}s)"
+            )
 
         return
 
-    heat_eq.q_flux.value = float(source["power"])
+    # --------------------------------------------------
+    # Incident irradiance
+    # --------------------------------------------------
+
+    irradiance = float(
+        source["irradiance"]
+    )
+
+    # --------------------------------------------------
+    # Absorptivity
+    # --------------------------------------------------
+
+    absorptivity = float(
+        source.get(
+            "absorptivity",
+            1.0,
+        )
+    )
+
+    if not 0.0 <= absorptivity <= 1.0:
+
+        raise ValueError(
+            "Lamp absorptivity must be "
+            "between 0 and 1."
+        )
+
+    # --------------------------------------------------
+    # Absorbed heat flux
+    # --------------------------------------------------
+
+    heat_eq.q_lamp.value = (
+        irradiance * absorptivity
+    )
 
     if heat_eq.debug:
+
         print(
-            f"💡 Lamp ON (t={t:.3f}s)"
+            f"💡 Lamp ON "
+            f"(t={t:.3f}s)"
         )
+
+        print(
+            f"   Irradiance   = "
+            f"{irradiance:.6e} W/m²"
+        )
+
+        print(
+            f"   Absorptivity = "
+            f"{absorptivity:.6f}"
+        )
+
+        print(
+            f"   Absorbed flux = "
+            f"{heat_eq.q_lamp.value:.6e} W/m²"
+        )
+
+
+# ============================================================
+# FIND VOLUME LAMP FACETS
+# ============================================================
 
 def find_volume_lamp_facets(
     domain,
@@ -243,32 +416,70 @@ def find_volume_lamp_facets(
     Parameters
     ----------
     source_position : np.ndarray
-        Lamp position. If any coordinate is ±inf, the source is treated
-        as infinitely far away and rays are assumed parallel.
+        Lamp position.
+
+        If any coordinate is ±inf, the source is treated
+        as infinitely far away and the rays are parallel.
 
     light_direction : np.ndarray
-        Main propagation direction of the light.
+        Direction of light propagation.
     """
 
     fdim = domain.topology.dim - 1
 
-    domain.topology.create_connectivity(fdim, 0)
-    domain.topology.create_connectivity(fdim, domain.topology.dim)
-    domain.topology.create_connectivity(domain.topology.dim, fdim)
+    domain.topology.create_connectivity(
+        fdim,
+        0,
+    )
 
-    facets = mesh.exterior_facet_indices(domain.topology)
+    domain.topology.create_connectivity(
+        fdim,
+        domain.topology.dim,
+    )
+
+    domain.topology.create_connectivity(
+        domain.topology.dim,
+        fdim,
+    )
+
+    facets = mesh.exterior_facet_indices(
+        domain.topology
+    )
 
     x = domain.geometry.x
 
-    connectivity = domain.topology.connectivity(fdim, 0)
+    connectivity = domain.topology.connectivity(
+        fdim,
+        0,
+    )
 
     mesh_center = x.mean(axis=0)
 
-    infinite_source = np.any(np.isinf(source_position))
+    infinite_source = np.any(
+        np.isinf(source_position)
+    )
 
     illuminated = []
 
     area = 0.0
+
+    # Normalize light direction
+    light_direction = np.asarray(
+        light_direction,
+        dtype=float,
+    )
+
+    norm = np.linalg.norm(
+        light_direction
+    )
+
+    if norm == 0:
+
+        raise ValueError(
+            "Light direction cannot be the zero vector."
+        )
+
+    light_direction /= norm
 
     for facet in facets:
 
@@ -286,13 +497,20 @@ def find_volume_lamp_facets(
 
         center = points.mean(axis=0)
 
+        # --------------------------------------------------
         # Orient normal outwards
-        if np.dot(normal, center - mesh_center) < 0:
+        # --------------------------------------------------
+
+        if np.dot(
+            normal,
+            center - mesh_center,
+        ) < 0:
+
             normal *= -1.0
 
-        # --------------------------------------------
+        # --------------------------------------------------
         # Compute incoming light direction
-        # --------------------------------------------
+        # --------------------------------------------------
 
         if infinite_source:
 
@@ -300,24 +518,33 @@ def find_volume_lamp_facets(
 
         else:
 
-            ray = center - source_position
+            ray = (
+                center - source_position
+            )
 
-            norm = np.linalg.norm(ray)
+            ray_norm = np.linalg.norm(ray)
 
-            if norm == 0:
+            if ray_norm == 0:
                 continue
 
-            ray /= norm
+            ray /= ray_norm
 
             # Ignore facets behind the lamp
-            if np.dot(ray, light_direction) < 0:
+            if np.dot(
+                ray,
+                light_direction,
+            ) < 0:
+
                 continue
 
-        # --------------------------------------------
+        # --------------------------------------------------
         # Illuminated?
-        # --------------------------------------------
+        # --------------------------------------------------
 
-        if np.dot(normal, ray) > 0:
+        if np.dot(
+            normal,
+            ray,
+        ) > 0:
 
             illuminated.append(facet)
 
@@ -332,29 +559,65 @@ def find_volume_lamp_facets(
     )
 
 
+# ============================================================
+# FIND SURFACE LAMP FACETS
+# ============================================================
+
 def find_surface_lamp_facets(
     domain,
-    light_direction=np.array([0.0, 0.0, 1.0]),
+    light_direction=np.array(
+        [0.0, 0.0, 1.0]
+    ),
 ):
+    """
+    Find illuminated cells of a 2D surface mesh.
+    """
 
     tdim = domain.topology.dim
 
-    domain.topology.create_connectivity(tdim, 0)
+    domain.topology.create_connectivity(
+        tdim,
+        0,
+    )
 
     cells = np.arange(
-        domain.topology.index_map(tdim).size_local,
+        domain.topology.index_map(
+            tdim
+        ).size_local,
         dtype=np.int32,
     )
 
     x = domain.geometry.x
 
-    connectivity = domain.topology.connectivity(tdim, 0)
+    connectivity = domain.topology.connectivity(
+        tdim,
+        0,
+    )
 
-    mesh_center = x.mean(axis=0)
+    mesh_center = x.mean(
+        axis=0
+    )
 
     illuminated = []
 
     area = 0.0
+
+    light_direction = np.asarray(
+        light_direction,
+        dtype=float,
+    )
+
+    norm = np.linalg.norm(
+        light_direction
+    )
+
+    if norm == 0:
+
+        raise ValueError(
+            "Light direction cannot be the zero vector."
+        )
+
+    light_direction /= norm
 
     for cell in cells:
 
@@ -370,51 +633,83 @@ def find_surface_lamp_facets(
         if normal is None:
             continue
 
-        center = points.mean(axis=0)
+        center = points.mean(
+            axis=0
+        )
 
         # Orient normal consistently
-        if np.dot(normal, center - mesh_center) < 0:
+        if np.dot(
+            normal,
+            center - mesh_center,
+        ) < 0:
+
             normal *= -1.0
 
-        if np.dot(normal, light_direction) > 0:
+        if np.dot(
+            normal,
+            light_direction,
+        ) > 0:
 
             illuminated.append(cell)
+
             area += triangle_area(points)
 
     return (
-        np.asarray(illuminated, dtype=np.int32),
+        np.asarray(
+            illuminated,
+            dtype=np.int32,
+        ),
         area,
     )
 
 
-import numpy as np
+# ============================================================
+# PARSE LAMP GEOMETRY
+# ============================================================
 
 def parse_lamp_geometry(source):
     """
+    Parse lamp position and light direction.
+
     Returns
     -------
     source_position : np.ndarray
+        Lamp position. Infinite coordinates indicate
+        an infinitely distant source.
+
     light_direction : np.ndarray
+        Normalized direction of light propagation.
     """
 
-    # Default: sunlight coming from +Z
     source_position = np.array(
-        source.get("source", [0.0, np.inf, 0.0]),
+        source.get(
+            "source",
+            [0.0, 0.0, np.inf],
+        ),
         dtype=float,
     )
 
     light_direction = np.array(
-        source.get("direction", [0.0, 0.0, 1.0]),
+        source.get(
+            "direction",
+            [0.0, 0.0, -1.0],
+        ),
         dtype=float,
     )
 
-    norm = np.linalg.norm(light_direction)
+    norm = np.linalg.norm(
+        light_direction
+    )
 
     if norm == 0:
+
         raise ValueError(
             "Lamp direction cannot be the zero vector."
         )
 
     light_direction /= norm
 
-    return source_position, light_direction
+    return (
+        source_position,
+        light_direction,
+    )
