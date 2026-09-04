@@ -249,6 +249,18 @@ class HeatEquation:
 
                 flux = self.q_gaussian
 
+                if flux is None:
+                    raise RuntimeError(
+                        "Gaussian source is enabled, but q_gaussian is None. "
+                        "Check initialize_gaussian() and the source configuration."
+                    )
+
+                if self.ds_gaussian is None:
+                    raise RuntimeError(
+                        "Gaussian source is enabled, but ds_gaussian is None. "
+                        "Check initialize_gaussian() and the boundary-marker setup."
+                    )
+
                 L += (
                     dt
                     * flux
@@ -256,6 +268,7 @@ class HeatEquation:
                     * v
                     * self.ds_gaussian(1)
                 )
+
 
             # --------------------------------------------------
             # Lamp surface source

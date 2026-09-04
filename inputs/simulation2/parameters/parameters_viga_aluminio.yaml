@@ -1,0 +1,123 @@
+# ----------------------------------------------------
+# Simulacion viga aluminio
+# ----------------------------------------------------
+domain:
+  path: stl/barra_aluminio.stl #
+  unit: mm
+
+  mesh:
+    output_dir: mesh
+
+    # Element size (mm)
+    lc_min: 0.2
+    lc_max: 0.5
+
+  material:
+    # aluminum
+    #alpha: 0.122 mm2/s https://en.wikipedia.org/wiki/Polytetrafluoroethylene
+    k: 237          # https://en.wikipedia.org/wiki/List_of_thermal_conductivities
+    rho: 2699.0    # kg/m³https://en.wikipedia.org/wiki/Aluminium
+    c: 900.0          # https://webbook.nist.gov/cgi/cbook.cgi?ID=C7429905&Type=JANAFS&Table=on
+
+simulation:
+
+  geometry:
+    representation: volume
+
+  time:
+    dt: 0.2          # s
+    T: 600.0           # s
+
+  # ----------------------------------------------------
+  # Initial condition
+  # ----------------------------------------------------
+
+  initial_condition:
+    type: uniform
+    ambient: 298.15   # K
+
+  # ----------------------------------------------------
+  # Physics
+  # ----------------------------------------------------
+
+  physics:
+
+    # ----------------------------------------------
+    # Volumetric heat source
+    # ----------------------------------------------
+    source:
+      name: Sun
+      enabled: true
+
+      type: lamp
+
+      source: [0.0, 0.0, +inf] #
+
+      direction: [0.0, 0.0, -1.0]
+      # Total source power (future implementation)
+      power: 250.10        # W/m2 Sun: 832.715 W/m2 Lampara a 40,38 mm 250,1031533 W/m2
+
+      value: 2.5e12
+
+      # Gaussian center (meters)
+      center:
+        [0.0, 0.0, 0.005]
+
+      # Gaussian radius
+      radius: 0.002    # m
+
+      # Source active between these times
+      t_start: 0.0      # s
+      t_end: 600.0       # s
+
+    # ----------------------------------------------
+    # Convection
+    # ----------------------------------------------
+    convection:
+      enabled: true
+      h: 10.0           # W/(m²·K)
+      ambient: 298.15   # K
+
+    # ----------------------------------------------
+    # Radiation
+    # ----------------------------------------------
+    radiation:
+      enabled: true
+      emissivity: 0.01 #UV-VIS
+      ambient: 298.15   # K
+
+roi:
+  search:
+    mode: nearest
+    # Tolerance set to ~0.3 mm (0.0003 m) to align with your mesh element size (lc_min: 0.2 mm)
+    tolerance: 0.0003
+  points:
+    # Direct Heat Source Impact (Peak Temperature)
+    - name: Heat_Center
+      location: [0.0, 0.0, 0.005]
+      variables:
+        - temperature
+
+    # Radial Thermal Gradient (At the Gaussian beam edge r = 2 mm)
+    - name: Radial_BeamEdge
+      location: [0.002, 0.0, 0.005]
+      variables:
+        - temperature
+
+    # Far Radial Thermal Diffusion (r = 5 mm)
+    - name: Radial_FarField
+      location: [0.005, 0.0, 0.005]
+      variables:
+        - temperature
+
+    # Through-Thickness Conduction (Mid-plane)
+    - name: Depth_Mid
+      location: [0.0, 0.0, 0.0]
+      variables:
+        - temperature
+
+    # Through-Thickness Conduction (Bottom Surface)
+    - name: Depth_Bottom
+      location: [0.0, 0.0, -0.005]
+      variables:
+        - temperature
