@@ -63,7 +63,7 @@ simulation:
         length_z: 0.030
 
       t_start: 0.0
-      t_end: 600.0
+      t_end: 75.0
 
 
     fixed_temperature:
@@ -101,75 +101,35 @@ roi:
 
   search:
     mode: nearest
-    tolerance: 0.0003
+    tolerance: 0.001
 
   points:
 
-    # ------------------------------------------------
-    # TOP SURFACE — DIRECTLY IRRADIATED
-    # ------------------------------------------------
+    # ==================================================
+    # FIRST 25% — CENTER
+    # ==================================================
 
-    - name: Top_Center
-      location: [0.0, 0.0, 0.01285]
+    - name: First25_Top
+      location: [-0.08354, 0.0, 0.01250]
       variables:
         - temperature
 
-    - name: Top_NearCenter_Y
-      location: [0.0, 0.005, 0.01285]
-      variables:
-        - temperature
-
-    - name: Top_NearCenter_X
-      location: [0.020, 0.0, 0.01285]
+    - name: First25_Bottom
+      location: [-0.08354, 0.0, -0.01325]
       variables:
         - temperature
 
 
-    # ------------------------------------------------
-    # THROUGH-THICKNESS
-    # ------------------------------------------------
+    # ==================================================
+    # LAST 25% — CENTER
+    # ==================================================
 
-    - name: Center_Midplane
-      location: [0.0, 0.0, 0.0]
+    - name: Last25_Top
+      location: [0.08354, 0.0, 0.01250]
       variables:
         - temperature
 
-    - name: Bottom_Center
-      location: [0.0, 0.0, -0.01285]
-      variables:
-        - temperature
-
-
-    # ------------------------------------------------
-    # LATERAL HEAT CONDUCTION
-    # ------------------------------------------------
-
-    - name: Side_Near
-      location: [0.0, 0.01045, 0.0]
-      variables:
-        - temperature
-
-    - name: Side_Far
-      location: [0.0, 0.01282, 0.0]
-      variables:
-        - temperature
-
-
-    # ------------------------------------------------
-    # LONGITUDINAL HEAT CONDUCTION
-    # ------------------------------------------------
-
-    - name: Length_Near
-      location: [0.020, 0.0, 0.01285]
-      variables:
-        - temperature
-
-    - name: Length_Mid
-      location: [0.050, 0.0, 0.01285]
-      variables:
-        - temperature
-
-    - name: Length_Far
-      location: [0.100, 0.0, 0.01285]
+    - name: Last25_Bottom
+      location: [0.08354, 0.0, -0.01325]
       variables:
         - temperature
