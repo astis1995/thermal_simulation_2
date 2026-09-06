@@ -114,6 +114,16 @@ def convert_model_to_mesh(unit: str):
     print(f"Ly = {size[1]:.6e} m")
     print(f"Lz = {size[2]:.6e} m")
 
+    print("\n==============================")
+    print("DOLFINx mesh topology")
+    print("==============================")
+    print(f"Topological dimension: {mesh.topology.dim}")
+    print(f"Geometrical dimension: {mesh.geometry.dim}")
+
+    for dim in range(mesh.topology.dim + 1):
+        mesh.topology.create_connectivity(dim, mesh.topology.dim)
+        n = mesh.topology.index_map(dim).size_local
+        print(f"Dimension {dim}: {n} entities")
     return mesh
 
 

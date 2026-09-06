@@ -2,7 +2,7 @@
 # Simulacion viga aluminio
 # ----------------------------------------------------
 domain:
-  path: stl/barra_aluminio.stl #
+  path: stl/barra_aluminio.stl
   unit: mm
 
   mesh:
@@ -13,11 +13,11 @@ domain:
     lc_max: 1.0
 
   material:
-    # aluminum
-    #alpha: 0.122 mm2/s https://en.wikipedia.org/wiki/Polytetrafluoroethylene
-    k: 237          # https://en.wikipedia.org/wiki/List_of_thermal_conductivities
-    rho: 2699.0    # kg/m³https://en.wikipedia.org/wiki/Aluminium
-    c: 900.0          # https://webbook.nist.gov/cgi/cbook.cgi?ID=C7429905&Type=JANAFS&Table=on
+    # Aluminum
+    k: 237
+    rho: 2699.0
+    c: 900.0
+
 
 simulation:
 
@@ -25,8 +25,8 @@ simulation:
     representation: volume
 
   time:
-    dt: 0.2          # s
-    T: 100.0           # s
+    dt: 0.2
+    T: 600.0
 
   # ----------------------------------------------------
   # Initial condition
@@ -34,7 +34,8 @@ simulation:
 
   initial_condition:
     type: uniform
-    ambient: 298.15   # K
+    ambient: 298.15
+
 
   # ----------------------------------------------------
   # Physics
@@ -48,7 +49,14 @@ simulation:
 
       region:
         type: box
-        center: [-0.11639, 0.0, 0.0]
+
+        # Heat source is now INSIDE the beam.
+        # Beam X range:
+        # -0.11139 m -> +0.11139 m
+        #
+        # 30 mm heat region:
+        # -0.11139 -> -0.08139 m
+        center: [-0.09639, 0.0, 0.0]
 
         length_x: 0.030
         length_y: 0.030
@@ -61,16 +69,13 @@ simulation:
     fixed_temperature:
       enabled: false
 
-      # Imposed temperature [K]
       temperature: 350.0
 
       region:
         type: box
 
-        # Center of the prism [m]
         center: [0.0, 0.0, 0.005]
 
-        # Full dimensions of the prism [m]
         length_x: 0.010
         length_y: 0.005
         length_z: 0.002
@@ -87,7 +92,13 @@ simulation:
       emissivity: 0.01
       ambient: 298.15
 
+
+# ----------------------------------------------------
+# ROI
+# ----------------------------------------------------
+
 roi:
+
   search:
     mode: nearest
     tolerance: 0.0003
