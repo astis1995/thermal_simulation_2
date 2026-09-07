@@ -79,7 +79,7 @@ def initialize_laser(heat_eq, source):
 
     if len(boundary_facets) == 0:
         raise RuntimeError(
-            "❌ Laser source: no boundary facets found"
+            " Laser source: no boundary facets found"
         )
 
     # --------------------------------------------------

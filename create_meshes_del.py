@@ -53,7 +53,7 @@ def process_stl(stl_path):
         print(f"✅ Success: {xdmf_path}")
 
     except Exception as e:
-        print(f"❌ Failed: {stl_path}")
+        print(f" Failed: {stl_path}")
         print(f"   Error: {e}")
 
         # Print full traceback for debugging
@@ -82,7 +82,7 @@ def main():
 
     print("\n📊 Summary:")
     print(f"   ✅ Processed: {success}")
-    print(f"   ❌ Failed: {failed}")
+    print(f"    Failed: {failed}")
 
 
 if __name__ == "__main__":

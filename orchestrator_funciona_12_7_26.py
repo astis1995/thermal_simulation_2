@@ -21,7 +21,7 @@ def apply_initial_condition(u_n, mesh, config):
     coords = mesh.geometry.x
 
     if ic_cfg.get("type") != "hotspot":
-        raise ValueError("❌ Only hotspot IC supported for now")
+        raise ValueError(" Only hotspot IC supported for now")
 
     # -------------------------
     # Parameters
@@ -46,7 +46,7 @@ def apply_initial_condition(u_n, mesh, config):
     num_hot = np.sum(mask)
 
     if num_hot == 0:
-        raise ValueError("❌ No nodes inside hotspot radius")
+        raise ValueError(" No nodes inside hotspot radius")
 
     u_n.x.array[mask] += delta
 
@@ -63,20 +63,20 @@ def apply_initial_condition(u_n, mesh, config):
 
 def load_config(config_path: str):
     if not os.path.exists(config_path):
-        raise FileNotFoundError(f"❌ Config not found: {config_path}")
+        raise FileNotFoundError(f" Config not found: {config_path}")
 
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
     if "surface" not in config:
-        raise ValueError("❌ Missing 'surface' section")
+        raise ValueError(" Missing 'surface' section")
 
     return config
 
 
 def load_mesh(xdmf_path: str):
     if not os.path.exists(xdmf_path):
-        raise FileNotFoundError(f"❌ Mesh file not found: {xdmf_path}")
+        raise FileNotFoundError(f" Mesh file not found: {xdmf_path}")
 
     print(f"📥 Loading mesh: {xdmf_path}")
 
@@ -111,7 +111,7 @@ def run_simulation(sim_name: str):
     print(f"   - Geometry dimension: {geo_dim}")
 
     if topo_dim != 2 or geo_dim != 3:
-        raise ValueError("❌ Expected surface mesh (2D in 3D)")
+        raise ValueError(" Expected surface mesh (2D in 3D)")
 
     # 4. Function space
     V = fem.functionspace(mesh, ("Lagrange", 1))
@@ -168,5 +168,5 @@ if __name__ == "__main__":
     try:
         run_simulation(sim_name)
     except Exception as e:
-        print(f"❌ Failed: {e}")
+        print(f" Failed: {e}")
         sys.exit(1)

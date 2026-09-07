@@ -17,7 +17,7 @@ def create_gif_stream(
     """
 
     if not os.path.exists(frames_dir):
-        raise FileNotFoundError(f"❌ Frames folder not found: {frames_dir}")
+        raise FileNotFoundError(f" Frames folder not found: {frames_dir}")
 
     files = sorted([
         f for f in os.listdir(frames_dir)
@@ -25,7 +25,7 @@ def create_gif_stream(
     ])
 
     if not files:
-        raise ValueError("❌ No PNG frames found")
+        raise ValueError(" No PNG frames found")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 

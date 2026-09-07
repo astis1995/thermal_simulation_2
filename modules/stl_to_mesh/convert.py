@@ -46,14 +46,14 @@ def run_gmsh(geo_path, msh_path):
     process.wait()
 
     if process.returncode != 0:
-        raise RuntimeError("❌ Gmsh failed")
+        raise RuntimeError(" Gmsh failed")
 
 
 def convert_msh_to_xdmf_old(msh_path, output_prefix):
     mesh = meshio.read(msh_path)
 
     if "triangle" not in mesh.cells_dict:
-        raise ValueError("❌ No triangle cells found")
+        raise ValueError(" No triangle cells found")
 
     triangles = mesh.cells_dict["triangle"]
 
@@ -70,7 +70,7 @@ def convert_msh_to_xdmf_old(msh_path, output_prefix):
 
 def convert_stl_to_xdmf(stl_path, output_path, lc_min=0.01, lc_max=0.05):
     if not os.path.exists(stl_path):
-        raise FileNotFoundError(f"❌ STL not found: {stl_path}")
+        raise FileNotFoundError(f" STL not found: {stl_path}")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 

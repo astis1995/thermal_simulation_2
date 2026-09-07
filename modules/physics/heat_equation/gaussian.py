@@ -104,7 +104,7 @@ def initialize_gaussian(heat_eq, source):
     if len(boundary_facets) == 0:
 
         raise RuntimeError(
-            "❌ Gaussian source: "
+            " Gaussian source: "
             "no boundary facets found"
         )
 

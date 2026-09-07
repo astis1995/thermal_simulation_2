@@ -45,7 +45,7 @@ def load_mesh(xdmf_path: str):
             f" Mesh file not found: {xdmf_path}"
         )
 
-    print(f"📥 Loading mesh: {xdmf_path}")
+    print(f" Loading mesh: {xdmf_path}")
 
     with XDMFFile(
         MPI.COMM_WORLD,
@@ -104,7 +104,7 @@ def ensure_mesh_exists(
         if cache:
 
             print(
-                f"📦 Using cached mesh: {mesh_path}"
+                f" Using cached mesh: {mesh_path}"
             )
 
             return mesh_path
@@ -145,18 +145,18 @@ def ensure_mesh_exists(
     if not os.path.exists(stl_path):
 
         raise FileNotFoundError(
-            f"❌ STL file not found: {stl_path}"
+            f" STL file not found: {stl_path}"
         )
 
     print(
-        f"📥 STL source: {stl_path}"
+        f" STL source: {stl_path}"
     )
 
     # --------------------------------------------------
     # Validate original STL
     # --------------------------------------------------
 
-    print("\n🔍 Validating STL...")
+    print("\n Validating STL...")
 
     stl_is_valid = validate_stl(
         stl_path=stl_path,
@@ -184,7 +184,7 @@ def ensure_mesh_exists(
         # --------------------------------------------------
 
         print(
-            "\n🔍 Validating repaired STL..."
+            "\n Validating repaired STL..."
         )
 
         fixed_is_valid = validate_stl(
@@ -196,7 +196,7 @@ def ensure_mesh_exists(
         if not fixed_is_valid:
 
             raise RuntimeError(
-                "\n❌ STL remains invalid after repair.\n"
+                "\n STL remains invalid after repair.\n"
                 f"Original STL : {stl_path}\n"
                 f"Repaired STL : {fixed_stl_path}\n"
                 "\n"
@@ -204,7 +204,7 @@ def ensure_mesh_exists(
             )
 
         print(
-            "\n✅ Repaired STL passed validation."
+            "\n Repaired STL passed validation."
         )
 
         # Use repaired STL from this point forward
@@ -215,7 +215,7 @@ def ensure_mesh_exists(
     else:
 
         print(
-            "\n✅ Original STL passed validation."
+            "\n Original STL passed validation."
         )
 
     # --------------------------------------------------
@@ -269,7 +269,7 @@ def ensure_mesh_exists(
     if not os.path.exists(mesh_path):
 
         raise RuntimeError(
-            f"❌ Mesh generation failed: "
+            f" Mesh generation failed: "
             f"{mesh_path}"
         )
 
@@ -281,12 +281,12 @@ def ensure_mesh_exists(
     if not os.path.exists(h5_path):
 
         raise RuntimeError(
-            f"❌ HDF5 mesh file missing: "
+            f" HDF5 mesh file missing: "
             f"{h5_path}"
         )
 
     print(
-        f"\n✅ Mesh ready: {mesh_path}"
+        f"\n Mesh ready: {mesh_path}"
     )
 
     return mesh_path

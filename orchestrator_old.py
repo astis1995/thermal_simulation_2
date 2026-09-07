@@ -145,7 +145,7 @@ def ensure_mesh_exists(
     if not os.path.exists(stl_path):
 
         raise FileNotFoundError(
-            f"❌ STL file not found: {stl_path}"
+            f" STL file not found: {stl_path}"
         )
 
     print(
@@ -196,7 +196,7 @@ def ensure_mesh_exists(
         if not fixed_is_valid:
 
             raise RuntimeError(
-                "\n❌ STL remains invalid after repair.\n"
+                "\n STL remains invalid after repair.\n"
                 f"Original STL : {stl_path}\n"
                 f"Repaired STL : {fixed_stl_path}\n"
                 "\n"
@@ -269,7 +269,7 @@ def ensure_mesh_exists(
     if not os.path.exists(mesh_path):
 
         raise RuntimeError(
-            f"❌ Mesh generation failed: "
+            f" Mesh generation failed: "
             f"{mesh_path}"
         )
 
@@ -281,7 +281,7 @@ def ensure_mesh_exists(
     if not os.path.exists(h5_path):
 
         raise RuntimeError(
-            f"❌ HDF5 mesh file missing: "
+            f" HDF5 mesh file missing: "
             f"{h5_path}"
         )
 

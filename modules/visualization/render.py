@@ -52,7 +52,7 @@ class HeatVisualizer:
         triangles = triangles[:valid_count]
 
         if len(triangles) == 0:
-            raise ValueError("❌ No valid triangles extracted")
+            raise ValueError(" No valid triangles extracted")
 
         print(f"🔺 Triangles: {len(triangles)}")
         print(f"🔺 Points: {len(self.x)}")
@@ -83,7 +83,7 @@ class HeatVisualizer:
         elif view == "-y":
             px, py = self.x, -self.z
         else:
-            raise ValueError(f"❌ Invalid view: {view}")
+            raise ValueError(f" Invalid view: {view}")
 
         print(f"📸 Frame {step} | view={view}")
 

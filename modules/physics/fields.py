@@ -27,10 +27,10 @@ def validate_material(material_cfg: dict):
 
     for key in required:
         if key not in material_cfg:
-            raise ValueError(f"❌ Missing material.{key}")
+            raise ValueError(f" Missing material.{key}")
 
         if material_cfg[key] <= 0:
-            raise ValueError(f"❌ material.{key} must be > 0")
+            raise ValueError(f" material.{key} must be > 0")
 
     return True
 
@@ -99,7 +99,7 @@ def build_fields(mesh, config: dict):
     surface = config["domain"]
 
     if "material" not in surface:
-        raise ValueError("❌ Missing surface.material")
+        raise ValueError(" Missing surface.material")
 
     material_cfg = surface["material"]
 
