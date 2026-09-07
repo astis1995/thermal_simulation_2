@@ -335,6 +335,18 @@ def main():
         encoding="utf-8-sig"
     )
 
+    # ========================================================
+    # CONVERT TEMPERATURE FROM °C TO K
+    # ========================================================
+
+    for column in df.columns:
+        if column not in {"time", "elapsed_seconds"}:
+            df[column] = pd.to_numeric(
+                df[column],
+                errors="coerce"
+            )
+
+            df[column] = df[column] + 273.15
     # --------------------------------------------------------
     # Validate time column
     # --------------------------------------------------------

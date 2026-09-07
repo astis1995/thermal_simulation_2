@@ -1,6 +1,7 @@
 # ----------------------------------------------------
 # Simulacion viga aluminio
 # h = H0/2
+# se acerca al tau experimental
 # ----------------------------------------------------
 domain:
   path: stl/barra_aluminio.stl

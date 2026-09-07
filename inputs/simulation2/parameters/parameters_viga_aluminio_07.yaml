@@ -1,0 +1,126 @@
+# ----------------------------------------------------
+# Simulacion viga aluminio
+# h = H0/2
+# se acerca al tau experimental
+# ----------------------------------------------------
+domain:
+  path: stl/barra_aluminio.stl
+  unit: mm
+
+  mesh:
+    output_dir: mesh
+
+    # Element size (mm)
+    lc_min: 0.5
+    lc_max: 1.0
+
+  material:
+    # Aluminum
+    k: 237
+    rho: 2699.0
+    c: 900.0
+
+
+simulation:
+
+  geometry:
+    representation: volume
+
+  time:
+    dt: 0.3
+    T: 800.0
+
+  # ----------------------------------------------------
+  # Initial condition
+  # ----------------------------------------------------
+
+  initial_condition:
+    type: uniform
+    ambient: 298.15
+
+
+  # ----------------------------------------------------
+  # Physics
+  # ----------------------------------------------------
+
+  physics:
+
+    fixed_heat:
+      enabled: true
+      power: 16.0
+
+      region:
+        type: box
+
+        # Heat source is now INSIDE the beam.
+        # Beam X range:
+        # -0.11139 m -> +0.11139 m
+        #
+        # 30 mm heat region:
+        # -0.11139 -> -0.08139 m
+        center: [-0.09639, 0.0, 0.0]
+
+        length_x: 0.030
+        length_y: 0.030
+        length_z: 0.030
+
+      t_start: 0.0
+      t_end: 800.0
+
+
+    fixed_temperature:
+      enabled: false
+
+      temperature: 350.0
+
+      region:
+        type: box
+
+        center: [0.0, 0.0, 0.005]
+
+        length_x: 0.010
+        length_y: 0.005
+        length_z: 0.002
+
+
+    convection:
+      enabled: true
+      h: 7.0
+      ambient: 298.15
+
+
+    radiation:
+      enabled: true
+      emissivity: 0.01
+      ambient: 298.15
+
+
+# ----------------------------------------------------
+# ROI
+# ----------------------------------------------------
+
+roi:
+  search:
+    mode: nearest
+    tolerance: 0.001
+
+  points:
+    - name: Point_1
+      location: [-0.109, -0.0115, 0.0115]
+      variables:
+        - temperature
+
+    - name: Point_2
+      location: [-0.07956, -0.0115, 0.0115]
+      variables:
+        - temperature
+
+    - name: Point_3
+      location: [-0.01591, -0.0115, 0.0115]
+      variables:
+        - temperature
+
+    - name: Point_4
+      location: [0.07957, -0.0115, 0.0115]
+      variables:
+        - temperature
