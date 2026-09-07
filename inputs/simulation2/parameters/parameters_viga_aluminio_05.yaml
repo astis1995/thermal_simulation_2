@@ -1,5 +1,6 @@
 # ----------------------------------------------------
 # Simulacion viga aluminio
+# h = H0/2
 # ----------------------------------------------------
 domain:
   path: stl/barra_aluminio.stl
@@ -45,7 +46,7 @@ simulation:
 
     fixed_heat:
       enabled: true
-      power: 5.0
+      power: 10.0
 
       region:
         type: box
@@ -83,7 +84,7 @@ simulation:
 
     convection:
       enabled: true
-      h: 10.0
+      h: 7.0
       ambient: 298.15
 
 

@@ -13,10 +13,18 @@ def run_simulation(
     mesh,
     config,
     sim_name,
-    output_dir
+    output_dir,
+    parameter_filename=None,
 ):
     """
     Complete thermal simulation pipeline.
+
+    Parameters:
+        parameter_filename:
+            Name or path of the parameter/configuration file used for
+            this simulation. Its filename stem is included in the
+            generated result names:
+                simulation-parameter-timestamp
 
     Pipeline:
 
@@ -524,6 +532,7 @@ def run_simulation(
             "roi",
             {}
         ),
+        parameter_filename=parameter_filename,
     )
 
     # ==========================================================

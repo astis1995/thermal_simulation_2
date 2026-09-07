@@ -45,7 +45,7 @@ simulation:
 
     fixed_heat:
       enabled: true
-      power: 5.0
+      power: 1.0
 
       region:
         type: box

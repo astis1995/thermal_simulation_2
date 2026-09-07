@@ -469,7 +469,8 @@ if __name__ == "__main__":
             mesh=mesh,
             config=config,
             sim_name=sim_name,
-            output_dir=base_output
+            output_dir=base_output,
+            parameter_filename=parameters_file,
         )
 
         print("\n Simulation completed")

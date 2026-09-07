@@ -265,18 +265,54 @@ class PointTracker:
     # 3D POINT
     # ======================================================
 
-    def _resolve_3d(
-        self,
-        point: ROIPoint,
-    ):
+    def _resolve_3d(self, point: ROIPoint):
 
-        target = point.requested
+        target = np.asarray(
+            point.requested,
+            dtype=np.float64,
+        )
 
+        # --------------------------------------------------
+        # Find cells whose bounding boxes contain the point
+        # --------------------------------------------------
+
+        x = target.reshape(1, 3)
+
+        candidates = geometry.compute_collisions_points(
+            self.bb_tree,
+            x,
+        )
+
+        colliding_cells = geometry.compute_colliding_cells(
+            self.mesh,
+            candidates,
+            x,
+        )
+
+        links = colliding_cells.links(0)
+
+        # --------------------------------------------------
+        # Point is inside a tetrahedral cell
+        # --------------------------------------------------
+
+        if len(links) > 0:
+
+            cell = int(links[0])
+
+            point.actual = target.copy()
+            point.distance = 0.0
+            point.cell = cell
+            point.vertex = None
+            point.mode = "3D-cell"
+
+            return
+
+        # --------------------------------------------------
+        # Point is not inside the mesh
+        # --------------------------------------------------
+
+        # Find nearest mesh vertex only as a diagnostic.
         coords = self.coordinates
-
-        # --------------------------------------------------
-        # Euclidean 3D distance
-        # --------------------------------------------------
 
         delta = coords - target
 
@@ -293,79 +329,21 @@ class PointTracker:
             distances[vertex]
         )
 
-        # --------------------------------------------------
-        # Tolerance
-        # --------------------------------------------------
+        print(
+            f"⚠ ROI '{point.name}': "
+            f"point is not inside any mesh cell."
+        )
 
-        if (
-            self.mode == "exact"
-            and distance > 0.0
-        ):
+        print(
+            f"   Nearest mesh vertex = "
+            f"{distance:.6e} m away"
+        )
 
-            point.actual = None
-            point.vertex = None
-            point.cell = None
-            point.distance = distance
-            point.mode = "3D-exact-failed"
-
-            return
-
-        if distance > self.tolerance:
-
-            print(
-                f"⚠ ROI '{point.name}': "
-                f"nearest 3D mesh point is "
-                f"{distance:.6e} m away "
-                f"(tolerance="
-                f"{self.tolerance:.6e} m)"
-            )
-
-            point.actual = None
-            point.vertex = None
-            point.cell = None
-            point.distance = distance
-            point.mode = "3D-nearest-outside-tolerance"
-
-            return
-
-        # --------------------------------------------------
-        # Store selected mesh point
-        # --------------------------------------------------
-
-        point.vertex = vertex
-
-        point.actual = coords[
-            vertex
-        ].copy()
-
+        point.actual = None
+        point.vertex = None
+        point.cell = None
         point.distance = distance
-
-        point.mode = "3D-nearest"
-
-        # --------------------------------------------------
-        # Find a cell containing this vertex
-        # --------------------------------------------------
-
-        links = self.vertex_to_cells.links(
-            vertex
-        )
-
-        if len(links) == 0:
-
-            point.cell = None
-
-            print(
-                f"⚠ ROI '{point.name}': "
-                f"vertex {vertex} has no "
-                f"connected cell."
-            )
-
-            return
-
-        point.cell = int(
-            links[0]
-        )
-
+        point.mode = "3D-outside-mesh"
     # ======================================================
     # 2D POINT
     # ======================================================
